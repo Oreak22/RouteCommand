@@ -1,0 +1,57 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgres://routecommand:routecommand@postgres:5432/routecommand
+      REDIS_URL: redis://redis:6379
+      WEB_ORIGIN: http://localhost:5173
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_SECURE: 'false'
+      SMTP_FROM: 'RouteCommand <no-reply@routecommand.local>'
+      GEOIP_DATABASE_PATH: /data/GeoLite2-City.mmdb
+    ports:
+      - '${API_PORT:-3000}:3000'
+    volumes:
+      - .:/workspace
+      - ./apps/api/data:/data:ro
+      - /workspace/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://localhost:${API_PORT:-3000}
+    ports:
+      - '${WEB_PORT:-5173}:5173'
+    volumes:
+      - .:/workspace
+      - /workspace/node_modules
+    depends_on:
+      - api
+
+  valhalla:
+    image: ghcr.io/valhalla/valhalla-scripted:latest
+    environment:
+      build_elevation: 'False'
+      build_admins: 'True'
+      build_time_zones: 'True'
+      build_tar: 'True'
+      serve_tiles: 'True'
+      server_threads: '2'
+    expose:
+      - '8002'
+    volumes:
+      - ./apps/routing/data:/custom_files

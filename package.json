@@ -1,0 +1,60 @@
+{
+  "name": "routecommand",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=26 <27",
+    "npm": ">=11 <12"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run build --workspace @routecommand/shared && concurrently -k -n api,web \"npm run dev --workspace @routecommand/api\" \"npm run dev --workspace @routecommand/web\"",
+    "dev:api": "npm run dev --workspace @routecommand/api",
+    "dev:web": "npm run dev --workspace @routecommand/web",
+    "build": "npm run build --workspace @routecommand/shared && npm run build --workspace @routecommand/api && npm run build --workspace @routecommand/web",
+    "lint": "eslint . && prettier --check .",
+    "typecheck": "npm run build --workspace @routecommand/shared && npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:integration": "npm run test:integration --workspace @routecommand/api",
+    "db:migrate": "npm run db:migrate --workspace @routecommand/api",
+    "db:rollback": "npm run db:rollback --workspace @routecommand/api",
+    "db:seed": "npm run db:seed --workspace @routecommand/api",
+    "db:check": "npm run db:check --workspace @routecommand/api",
+    "sim": "node scripts/telemetry-simulator.mjs",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.13.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.6",
+    "prettier": "^3.6.2",
+    "@commitlint/cli": "^20.1.0",
+    "@commitlint/config-conventional": "^20.0.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^3.2.4"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ],
+    "*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "eslint --fix"
+    ]
+  },
+  "allowScripts": {
+    "esbuild": true
+  }
+}

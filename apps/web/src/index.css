@@ -1,0 +1,204 @@
+@import 'tailwindcss';
+
+@plugin "daisyui" {
+  themes:
+    routecommand-dark --default,
+    routecommand-light;
+}
+
+@plugin "daisyui/theme" {
+  name: 'routecommand-dark';
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+  --color-base-100: oklch(20% 0.024 250);
+  --color-base-200: oklch(16% 0.024 250);
+  --color-base-300: oklch(24% 0.028 250);
+  --color-base-content: oklch(92% 0.016 230);
+  --color-primary: oklch(74% 0.12 190);
+  --color-primary-content: oklch(17% 0.03 205);
+  --color-secondary: oklch(72% 0.1 235);
+  --color-secondary-content: oklch(17% 0.03 235);
+  --color-accent: oklch(79% 0.13 78);
+  --color-accent-content: oklch(20% 0.04 78);
+  --color-neutral: oklch(29% 0.026 250);
+  --color-neutral-content: oklch(89% 0.016 230);
+  --color-info: oklch(74% 0.1 220);
+  --color-info-content: oklch(17% 0.03 220);
+  --color-success: oklch(72% 0.13 158);
+  --color-success-content: oklch(17% 0.035 158);
+  --color-warning: oklch(80% 0.14 78);
+  --color-warning-content: oklch(20% 0.04 78);
+  --color-error: oklch(68% 0.16 28);
+  --color-error-content: oklch(18% 0.04 28);
+  --radius-selector: 0.5rem;
+  --radius-field: 0.625rem;
+  --radius-box: 0.875rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+@plugin "daisyui/theme" {
+  name: 'routecommand-light';
+  color-scheme: light;
+  --color-base-100: oklch(99% 0.004 245);
+  --color-base-200: oklch(96.5% 0.008 245);
+  --color-base-300: oklch(92.5% 0.014 245);
+  --color-base-content: oklch(24% 0.028 252);
+  --color-primary: oklch(49% 0.11 192);
+  --color-primary-content: oklch(99% 0.006 190);
+  --color-secondary: oklch(51% 0.1 235);
+  --color-secondary-content: oklch(99% 0.006 235);
+  --color-accent: oklch(50% 0.11 72);
+  --color-accent-content: oklch(99% 0.008 72);
+  --color-neutral: oklch(89% 0.014 245);
+  --color-neutral-content: oklch(25% 0.03 252);
+  --color-info: oklch(51% 0.1 220);
+  --color-info-content: oklch(99% 0.006 220);
+  --color-success: oklch(47% 0.11 158);
+  --color-success-content: oklch(99% 0.006 158);
+  --color-warning: oklch(59% 0.12 76);
+  --color-warning-content: oklch(99% 0.006 76);
+  --color-error: oklch(53% 0.14 28);
+  --color-error-content: oklch(99% 0.006 28);
+  --radius-selector: 0.5rem;
+  --radius-field: 0.625rem;
+  --radius-box: 0.875rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@theme {
+  --font-sans: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  --color-driver-available: var(--driver-available);
+  --color-driver-busy: var(--driver-busy);
+  --color-driver-offline: var(--driver-offline);
+  --color-driver-break: var(--driver-break);
+  --color-shipment-created: var(--shipment-created);
+  --color-shipment-assigned: var(--shipment-assigned);
+  --color-shipment-transit: var(--shipment-transit);
+  --color-shipment-delivered: var(--shipment-delivered);
+  --color-shipment-cancelled: var(--shipment-cancelled);
+  --color-alert-low: var(--alert-low);
+  --color-alert-medium: var(--alert-medium);
+  --color-alert-high: var(--alert-high);
+  --color-alert-critical: var(--alert-critical);
+  --color-zone-delivery: var(--zone-delivery);
+  --color-zone-restricted: var(--zone-restricted);
+  --color-zone-depot: var(--zone-depot);
+  --color-zone-custom: var(--zone-custom);
+}
+
+:root,
+[data-theme='routecommand-dark'] {
+  --driver-available: oklch(76% 0.14 160);
+  --driver-busy: oklch(82% 0.15 82);
+  --driver-offline: oklch(65% 0.025 245);
+  --driver-break: oklch(73% 0.13 290);
+  --shipment-created: oklch(76% 0.11 225);
+  --shipment-assigned: oklch(76% 0.12 260);
+  --shipment-transit: oklch(80% 0.14 75);
+  --shipment-delivered: oklch(76% 0.14 160);
+  --shipment-cancelled: oklch(70% 0.16 27);
+  --alert-low: oklch(74% 0.11 220);
+  --alert-medium: oklch(82% 0.15 82);
+  --alert-high: oklch(72% 0.16 45);
+  --alert-critical: oklch(69% 0.18 27);
+  --zone-delivery: oklch(76% 0.14 160);
+  --zone-restricted: oklch(71% 0.17 28);
+  --zone-depot: oklch(76% 0.12 260);
+  --zone-custom: oklch(78% 0.14 205);
+}
+
+[data-theme='routecommand-light'] {
+  --driver-available: oklch(48% 0.13 160);
+  --driver-busy: oklch(58% 0.13 75);
+  --driver-offline: oklch(51% 0.035 245);
+  --driver-break: oklch(49% 0.13 290);
+  --shipment-created: oklch(49% 0.12 225);
+  --shipment-assigned: oklch(49% 0.13 260);
+  --shipment-transit: oklch(58% 0.13 75);
+  --shipment-delivered: oklch(48% 0.13 160);
+  --shipment-cancelled: oklch(53% 0.15 27);
+  --alert-low: oklch(48% 0.12 220);
+  --alert-medium: oklch(58% 0.13 75);
+  --alert-high: oklch(55% 0.15 45);
+  --alert-critical: oklch(51% 0.16 27);
+  --zone-delivery: oklch(48% 0.13 160);
+  --zone-restricted: oklch(53% 0.15 28);
+  --zone-depot: oklch(49% 0.13 260);
+  --zone-custom: oklch(49% 0.12 205);
+}
+
+@utility font-data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@layer base {
+  * {
+    border-color: color-mix(in oklab, var(--color-base-content) 12%, transparent);
+  }
+
+  html {
+    min-width: 320px;
+    background: var(--color-base-200);
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    background: var(--color-base-200);
+    color: var(--color-base-content);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  background: var(--color-base-300);
+  color: var(--color-base-content);
+  font-family: var(--font-sans);
+}
+
+.leaflet-control-attribution,
+.leaflet-control-scale-line {
+  font-size: 0.625rem;
+}

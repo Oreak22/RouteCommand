@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@routecommand/shared": ["../../packages/shared/dist/index.js"],
+      "@routecommand/shared/*": ["../../packages/shared/dist/*"]
+    }
+  }
+}
