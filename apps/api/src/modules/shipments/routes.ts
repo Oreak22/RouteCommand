@@ -3,7 +3,9 @@ import {
   createShipmentSchema,
   listShipmentsQuerySchema,
   shipmentCustomerQuerySchema,
+  shipmentAcceptSchema,
   shipmentIdParamsSchema,
+  shipmentRejectSchema,
   transitionShipmentSchema,
   updateShipmentSchema,
 } from '@routecommand/shared'
@@ -11,11 +13,13 @@ import { Router } from 'express'
 
 import {
   cancel,
+  accept,
   create,
   customers,
   detail,
   events,
   list,
+  reject,
   transition,
   update,
 } from './controller.js'
@@ -51,6 +55,20 @@ shipmentsRouter.post(
   validate('params', shipmentIdParamsSchema),
   validate('body', transitionShipmentSchema),
   transition,
+)
+shipmentsRouter.post(
+  '/:shipmentId/accept',
+  authorize('DRIVER'),
+  validate('params', shipmentIdParamsSchema),
+  validate('body', shipmentAcceptSchema),
+  accept,
+)
+shipmentsRouter.post(
+  '/:shipmentId/reject',
+  authorize('DRIVER'),
+  validate('params', shipmentIdParamsSchema),
+  validate('body', shipmentRejectSchema),
+  reject,
 )
 shipmentsRouter.post(
   '/:shipmentId/cancel',

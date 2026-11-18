@@ -8,6 +8,7 @@ import { NotFoundError, ServiceUnavailableError } from './core/errors/app-error.
 import { errorHandler } from './core/errors/error-handler.js'
 import { logger } from './core/logger.js'
 import { checkDatabaseHealth } from './db/pool.js'
+import { checkEmailInfrastructureHealth } from './infra/email-queue.js'
 import { checkRedisHealth } from './infra/redis.js'
 import { requestIdMiddleware } from './middleware/request-id.js'
 import {
@@ -17,9 +18,14 @@ import {
   preventParameterPollution,
   securityHeaders,
 } from './middleware/security.js'
+import { adminEmailRouter } from './modules/admin-email/routes.js'
+import { alertsRouter } from './modules/alerts/routes.js'
 import { authenticate, authorize } from './modules/auth/authenticate.js'
 import { createAuthRouter } from './modules/auth/index.js'
+import { dispatchRouter } from './modules/dispatch/routes.js'
 import { driversRouter } from './modules/drivers/index.js'
+import { notificationsRouter } from './modules/notifications/routes.js'
+import { securityAdminRouter } from './modules/security/admin-routes.js'
 import { shipmentsRouter } from './modules/shipments/index.js'
 import { renderTelemetryMetrics, telemetryRouter } from './modules/telemetry/index.js'
 import { usersRouter } from './modules/users/index.js'
@@ -55,15 +61,27 @@ export const createApp = () => {
   })
   app.get('/health/ready', async (_request, response, next) => {
     try {
-      await Promise.all([checkDatabaseHealth(), checkRedisHealth()])
-      response.status(200).json({ status: 'ok', dependencies: { postgres: 'ok', redis: 'ok' } })
+      await Promise.all([
+        checkDatabaseHealth(),
+        checkRedisHealth(),
+        checkEmailInfrastructureHealth(),
+      ])
+      response.status(200).json({
+        status: 'ok',
+        dependencies: { postgres: 'ok', redis: 'ok', email: 'ok' },
+      })
     } catch {
       next(new ServiceUnavailableError('A required service is not ready.'))
     }
   })
   app.use('/api/v1/auth', createAuthRouter())
+  app.use('/api/v1/admin', adminEmailRouter)
+  app.use('/api/v1/admin/security-events', securityAdminRouter)
+  app.use('/api/v1/notifications', notificationsRouter)
+  app.use('/api/v1/alerts', alertsRouter)
   app.use('/api/v1/users', usersRouter)
   app.use('/api/v1/drivers', driversRouter)
+  app.use('/api/v1/dispatch', dispatchRouter)
   app.use('/api/v1/vehicles', vehiclesRouter)
   app.use('/api/v1/zones', zonesRouter)
   app.use('/api/v1/shipments', shipmentsRouter)

@@ -19,8 +19,11 @@ import {
   hasPublicTrackingCode,
   insertShipment,
   insertShipmentEvent,
+  isDriverDispatchEligible,
   listShipmentCustomers,
+  listDispatchCandidates,
   listShipmentEvents,
+  lockTimedOutAssignments,
   listShipments,
   lockDriverForShipment,
   lockShipment,
@@ -29,9 +32,10 @@ import {
   setShipmentStatus,
   updateLockedDriverStatus,
 } from './repository.js'
-import type { ShipmentEventRecord, ShipmentRecord } from './repository.js'
+import type { DispatchCandidate, ShipmentEventRecord, ShipmentRecord } from './repository.js'
 import {
   assertShipmentTransition,
+  assertSystemShipmentTransition,
   canCancelShipment,
   getAllowedShipmentTransitions,
 } from './state-machine.js'
@@ -60,7 +64,7 @@ function makeRequestHash(value: unknown): string {
 
 async function writeAudit(
   executor: DatabaseExecutor,
-  actorId: string,
+  actorId: string | null,
   action: string,
   shipmentId: string,
   context: AuthRequestContext,
@@ -119,7 +123,7 @@ export async function createShipmentRecord(
           { trackingCode, customerId, payload: input, eta },
           executor,
         )
-        await insertShipmentEvent(
+        const createdEvent = await insertShipmentEvent(
           {
             shipmentId,
             status: 'CREATED',
@@ -138,6 +142,15 @@ export async function createShipmentRecord(
             shipmentId,
             customerId,
             trackingCode,
+            eventId: createdEvent.id,
+          })
+          domainEventBus.publishAfterCommit(afterCommit, 'security.signal', {
+            type: 'customer_shipment_created',
+            userId: actor.id,
+            occurredAt: new Date().toISOString(),
+            evidence: { shipmentId },
+            ...(context.ip ? { ip: context.ip } : {}),
+            ...(context.userAgent ? { userAgent: context.userAgent } : {}),
           })
         }
         const shipment = await getShipment(shipmentId, executor)
@@ -177,6 +190,302 @@ export async function publicTrackingCodeExists(trackingCode: string): Promise<bo
 
 export async function listShipmentCustomerOptions(input: { search?: string; limit: number }) {
   return listShipmentCustomers(input)
+}
+
+export async function getDispatchSuggestions(
+  shipmentId: string,
+  actor: { id: string; role: UserRole },
+): Promise<DispatchCandidate[]> {
+  if (!['ADMIN', 'DISPATCHER'].includes(actor.role)) {
+    throw new ForbiddenError('Only dispatchers and administrators can request driver suggestions.')
+  }
+  const shipment = await getShipmentRecord(shipmentId, actor)
+  if (shipment.status !== 'CREATED') {
+    throw new ConflictError('Driver suggestions are available only for unassigned shipments.', {
+      status: shipment.status,
+    })
+  }
+  return listDispatchCandidates({
+    shipmentId,
+    radiusM: env.DISPATCH_PICKUP_RADIUS_M,
+    signalStaleSeconds: env.DRIVER_SIGNAL_STALE_SECONDS,
+    maxAccuracyM: env.MAX_ACCURACY_M,
+    workloadPenaltyM: env.DISPATCH_WORKLOAD_PENALTY_M,
+    freshnessPenaltyMPerMinute: env.DISPATCH_FRESHNESS_PENALTY_M_PER_MINUTE,
+    zoneMatchBonusM: env.DISPATCH_ZONE_MATCH_BONUS_M,
+  })
+}
+
+export async function assignShipmentToDriverRecord(
+  shipmentId: string,
+  driverId: string,
+  actor: { id: string; role: UserRole },
+  context: AuthRequestContext,
+): Promise<{ shipment: ShipmentRecord; event: ShipmentEventRecord }> {
+  if (!['ADMIN', 'DISPATCHER'].includes(actor.role)) {
+    throw new ForbiddenError('Only dispatchers and administrators can assign shipments.')
+  }
+  return withTransaction(async (executor, afterCommit) => {
+    const locked = await lockShipment(shipmentId, executor)
+    if (!locked) throw new NotFoundError('Shipment was not found.')
+    if (locked.status !== 'CREATED') {
+      throw new ConflictError('Only unassigned shipments can be dispatched.', {
+        status: locked.status,
+      })
+    }
+    const driver = await assertDriverCanBeAssigned(driverId, null, executor)
+    if (driver.status !== 'AVAILABLE') {
+      throw new ConflictError('The selected driver is no longer available.', {
+        reason: 'DRIVER_NOT_AVAILABLE',
+      })
+    }
+    const shipmentBefore = await getShipment(shipmentId, executor)
+    if (!shipmentBefore) throw new NotFoundError('Shipment was not found.')
+    const eligible = await isDriverDispatchEligible(
+      shipmentId,
+      driverId,
+      {
+        radiusM: env.DISPATCH_PICKUP_RADIUS_M,
+        signalStaleSeconds: env.DRIVER_SIGNAL_STALE_SECONDS,
+        maxAccuracyM: env.MAX_ACCURACY_M,
+      },
+      executor,
+    )
+    if (!eligible) {
+      throw new ConflictError('The selected driver no longer meets dispatch requirements.', {
+        reason: 'DRIVER_NO_LONGER_ELIGIBLE',
+      })
+    }
+    if (
+      !driver.vehicle_active ||
+      driver.capacity_kg === null ||
+      driver.capacity_kg < shipmentBefore.weightKg
+    ) {
+      throw new ConflictError('The selected driver vehicle cannot carry this shipment.', {
+        reason: 'INSUFFICIENT_VEHICLE_CAPACITY',
+      })
+    }
+    await patchShipment(shipmentId, { driverId }, executor)
+    const shipment = await getShipment(shipmentId, executor)
+    if (!shipment) throw new NotFoundError('Shipment was not found after assignment.')
+    assertShipmentTransition(locked.status, 'ASSIGNED', actor.role, false)
+    return saveTransition(
+      shipment,
+      locked.status,
+      'ASSIGNED',
+      actor,
+      'Assigned by dispatch.',
+      null,
+      context,
+      executor,
+      afterCommit,
+    )
+  })
+}
+
+function distanceMeters(
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+): number {
+  const radians = Math.PI / 180
+  const latitudeDelta = (to.lat - from.lat) * radians
+  const longitudeDelta = (to.lng - from.lng) * radians
+  const latitudeA = from.lat * radians
+  const latitudeB = to.lat * radians
+  const value =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(latitudeA) * Math.cos(latitudeB) * Math.sin(longitudeDelta / 2) ** 2
+  return 6_371_008.8 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value))
+}
+
+export async function assignShipmentBatchToDriverRecord(
+  shipmentIds: string[],
+  driverId: string,
+  actor: { id: string; role: UserRole },
+  context: AuthRequestContext,
+): Promise<{
+  driverId: string
+  totalWeightKg: number
+  stops: Array<{
+    sequence: number
+    distanceFromPreviousM: number
+    shipment: ShipmentRecord
+    event: ShipmentEventRecord
+  }>
+}> {
+  if (!['ADMIN', 'DISPATCHER'].includes(actor.role)) {
+    throw new ForbiddenError('Only dispatchers and administrators can batch-assign shipments.')
+  }
+  if (shipmentIds.length < 2 || new Set(shipmentIds).size !== shipmentIds.length) {
+    throw new ValidationError({ shipmentIds: ['Choose at least two distinct shipments.'] })
+  }
+
+  return withTransaction(async (executor, afterCommit) => {
+    const lockedById = new Map<string, Awaited<ReturnType<typeof lockShipment>>>()
+    for (const shipmentId of [...shipmentIds].sort()) {
+      const locked = await lockShipment(shipmentId, executor)
+      if (!locked) throw new NotFoundError('One or more shipments were not found.')
+      if (locked.status !== 'CREATED') {
+        throw new ConflictError('Every batch shipment must be unassigned.', {
+          shipmentId,
+          status: locked.status,
+        })
+      }
+      lockedById.set(shipmentId, locked)
+    }
+
+    const shipments = await Promise.all(
+      shipmentIds.map(async (shipmentId) => {
+        const shipment = await getShipment(shipmentId, executor)
+        if (!shipment) throw new NotFoundError('One or more shipments were not found.')
+        return shipment
+      }),
+    )
+    const totalWeightKg = shipments.reduce((total, shipment) => total + shipment.weightKg, 0)
+    const driver = await assertDriverCanBeAssigned(driverId, null, executor)
+    if (driver.status !== 'AVAILABLE') {
+      throw new ConflictError('The selected driver is no longer available.', {
+        reason: 'DRIVER_NOT_AVAILABLE',
+      })
+    }
+    if (
+      !driver.vehicle_active ||
+      driver.capacity_kg === null ||
+      driver.capacity_kg < totalWeightKg
+    ) {
+      throw new ConflictError('The selected vehicle cannot carry the combined shipment weight.', {
+        reason: 'INSUFFICIENT_BATCH_CAPACITY',
+        totalWeightKg,
+        capacityKg: driver.capacity_kg,
+      })
+    }
+    if (driver.lat === null || driver.lng === null) {
+      throw new ConflictError('The selected driver has no current location.', {
+        reason: 'DRIVER_NO_LOCATION',
+      })
+    }
+
+    for (const shipment of shipments) {
+      const eligible = await isDriverDispatchEligible(
+        shipment.id,
+        driverId,
+        {
+          radiusM: env.DISPATCH_PICKUP_RADIUS_M,
+          signalStaleSeconds: env.DRIVER_SIGNAL_STALE_SECONDS,
+          maxAccuracyM: env.MAX_ACCURACY_M,
+        },
+        executor,
+      )
+      if (!eligible) {
+        throw new ConflictError(
+          'The selected driver is not eligible for every shipment in this batch.',
+          {
+            shipmentId: shipment.id,
+            reason: 'DRIVER_NO_LONGER_ELIGIBLE',
+          },
+        )
+      }
+    }
+
+    const remaining = [...shipments]
+    const ordered: Array<{ shipment: ShipmentRecord; distanceFromPreviousM: number }> = []
+    let previous = { lat: driver.lat, lng: driver.lng }
+    while (remaining.length > 0) {
+      let nearestIndex = 0
+      let nearestDistance = distanceMeters(previous, remaining[0]!.pickup)
+      for (let index = 1; index < remaining.length; index += 1) {
+        const candidateDistance = distanceMeters(previous, remaining[index]!.pickup)
+        if (candidateDistance < nearestDistance) {
+          nearestDistance = candidateDistance
+          nearestIndex = index
+        }
+      }
+      const [nearest] = remaining.splice(nearestIndex, 1)
+      ordered.push({ shipment: nearest!, distanceFromPreviousM: nearestDistance })
+      previous = nearest!.pickup
+    }
+
+    const stops = []
+    for (const [index, stop] of ordered.entries()) {
+      const locked = lockedById.get(stop.shipment.id)!
+      await patchShipment(stop.shipment.id, { driverId }, executor)
+      const assigned = await getShipment(stop.shipment.id, executor)
+      if (!assigned) throw new NotFoundError('A shipment was not found after batch assignment.')
+      assertShipmentTransition(locked.status, 'ASSIGNED', actor.role, false)
+      const result = await saveTransition(
+        assigned,
+        locked.status,
+        'ASSIGNED',
+        actor,
+        `Assigned in batch dispatch · stop ${index + 1} of ${ordered.length}.`,
+        null,
+        context,
+        executor,
+        afterCommit,
+      )
+      stops.push({
+        sequence: index + 1,
+        distanceFromPreviousM: Math.round(stop.distanceFromPreviousM),
+        shipment: result.shipment,
+        event: result.event,
+      })
+    }
+    return { driverId, totalWeightKg, stops }
+  })
+}
+
+export async function requeueTimedOutAssignments(shipmentId?: string): Promise<number> {
+  return withTransaction(async (executor, afterCommit) => {
+    const timedOut = await lockTimedOutAssignments(
+      env.DISPATCH_ASSIGNMENT_TIMEOUT_SECONDS,
+      50,
+      executor,
+      shipmentId,
+    )
+    for (const record of timedOut) {
+      assertSystemShipmentTransition('ASSIGNED', 'CREATED')
+      await setShipmentStatus(record.id, 'CREATED', executor, true)
+      const timeoutEvent = await insertShipmentEvent(
+        {
+          shipmentId: record.id,
+          status: 'CREATED',
+          actorId: null,
+          note: 'Assignment expired before driver acceptance; returned to dispatch queue.',
+          location: null,
+        },
+        executor,
+      )
+      await writeAudit(
+        executor,
+        null,
+        'shipments.assignment_timed_out',
+        record.id,
+        { ip: undefined, userAgent: undefined },
+        {
+          previousStatus: 'ASSIGNED',
+          status: 'CREATED',
+          driverId: record.driver_id,
+          timeoutSeconds: env.DISPATCH_ASSIGNMENT_TIMEOUT_SECONDS,
+        },
+      )
+      await setDriverOperationalStatus(
+        record.driver_id,
+        record.id,
+        'AVAILABLE',
+        null,
+        executor,
+        afterCommit,
+      )
+      domainEventBus.publishAfterCommit(afterCommit, 'shipment.statusChanged', {
+        shipmentId: record.id,
+        eventId: timeoutEvent.id,
+        previousStatus: 'ASSIGNED',
+        status: 'CREATED',
+        actorId: null,
+      })
+    }
+    return timedOut.length
+  })
 }
 
 export async function getShipmentRecord(
@@ -237,7 +546,7 @@ async function setDriverOperationalStatus(
   driverId: string,
   shipmentId: string,
   status: 'AVAILABLE' | 'BUSY',
-  actorId: string,
+  actorId: string | null,
   executor: DatabaseExecutor,
   afterCommit: RegisterAfterCommit,
 ): Promise<void> {
@@ -419,6 +728,7 @@ async function saveTransition(
   if (toStatus === 'ASSIGNED' && shipment.driverId) {
     domainEventBus.publishAfterCommit(afterCommit, 'shipment.assigned', {
       shipmentId: shipment.id,
+      eventId: event.id,
       driverId: shipment.driverId,
       dispatcherId: actor.id,
       trackingCode: shipment.trackingCode,
@@ -426,6 +736,7 @@ async function saveTransition(
   } else if (toStatus !== 'CANCELLED') {
     domainEventBus.publishAfterCommit(afterCommit, 'shipment.statusChanged', {
       shipmentId: shipment.id,
+      eventId: event.id,
       previousStatus: fromStatus,
       status: toStatus,
       actorId: actor.id,
@@ -564,8 +875,20 @@ export async function cancelShipmentRecord(
       actorId: actor.id,
       actorRole: actor.role,
       reason: input.reason,
+      previousStatus: locked.status,
       previousDriverId: shipment.driverId,
+      eventId: result.event.id,
     })
+    if (actor.role === 'CUSTOMER') {
+      domainEventBus.publishAfterCommit(afterCommit, 'security.signal', {
+        type: 'customer_shipment_cancelled',
+        userId: actor.id,
+        occurredAt: new Date().toISOString(),
+        evidence: { shipmentId },
+        ...(context.ip ? { ip: context.ip } : {}),
+        ...(context.userAgent ? { userAgent: context.userAgent } : {}),
+      })
+    }
     return result
   })
 }

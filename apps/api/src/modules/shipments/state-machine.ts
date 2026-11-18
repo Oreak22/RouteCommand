@@ -76,3 +76,9 @@ export function assertShipmentTransition(
     })
   }
 }
+
+export function assertSystemShipmentTransition(from: ShipmentStatus, to: ShipmentStatus): void {
+  if (from !== 'ASSIGNED' || to !== 'CREATED') {
+    throw new ConflictError('This automated shipment transition is not allowed.', { from, to })
+  }
+}

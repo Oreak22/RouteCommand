@@ -104,7 +104,9 @@ function subscribeDomainEvents(): Array<() => void> {
       publish('shipment.statusChanged', event),
     ),
     domainEventBus.subscribe('shipment.cancelled', (event) => publish('shipment.cancelled', event)),
+    domainEventBus.subscribe('shipment.suggested', (event) => publish('shipment.suggested', event)),
     domainEventBus.subscribe('alert.created', (event) => publish('alert.created', event)),
+    domainEventBus.subscribe('alert.updated', (event) => publish('alert.updated', event)),
     domainEventBus.subscribe('zone.updated', (event) => publish('zone.updated', event)),
   ]
 }
@@ -147,6 +149,20 @@ async function operationsSnapshot(): Promise<{
 }
 
 function emitDomainEvent(io: RealtimeServer, name: string, payload: Record<string, unknown>): void {
+  if (name === 'shipment.suggested') {
+    const shipmentId = payload.shipmentId
+    const driverId = payload.driverId
+    if (typeof shipmentId !== 'string' || typeof driverId !== 'string') return
+    const suggestion = {
+      shipmentId,
+      suggestedStatus: payload.suggestedStatus === 'ARRIVED' ? 'ARRIVED' : 'PICKED_UP',
+      reason: payload.reason === 'NEAR_DROPOFF' ? 'NEAR_DROPOFF' : 'DEPOT_GEOFENCE',
+    } as const
+    io.to('ops').emit('shipment:suggestion', suggestion)
+    io.to(`driver:${driverId}`).emit('shipment:suggestion', suggestion)
+    io.to(`shipment:${shipmentId}`).emit('shipment:suggestion', suggestion)
+    return
+  }
   if (name === 'driver.statusChanged' || name === 'driver.vehicleAssigned') {
     const driverId = payload.driverId
     if (typeof driverId !== 'string') return
@@ -167,7 +183,11 @@ function emitDomainEvent(io: RealtimeServer, name: string, payload: Record<strin
     if (typeof shipmentId !== 'string') return
     const event = {
       shipmentId,
-      ...(typeof payload.status === 'string' ? { status: payload.status } : {}),
+      ...(name === 'shipment.assigned'
+        ? { status: 'ASSIGNED' }
+        : typeof payload.status === 'string'
+          ? { status: payload.status }
+          : {}),
       ...(typeof payload.trackingCode === 'string' ? { trackingCode: payload.trackingCode } : {}),
     }
     io.to('ops').emit('shipment:updated', event)
@@ -181,6 +201,13 @@ function emitDomainEvent(io: RealtimeServer, name: string, payload: Record<strin
       alertId: payload.alertId,
       type: String(payload.type ?? 'UNKNOWN'),
       severity: String(payload.severity ?? 'LOW'),
+    })
+    return
+  }
+  if (name === 'alert.updated' && typeof payload.alertId === 'string') {
+    io.to('ops').emit('alert:updated', {
+      alertId: payload.alertId,
+      status: String(payload.status ?? 'UPDATED'),
     })
     return
   }

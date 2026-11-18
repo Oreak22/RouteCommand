@@ -9,7 +9,7 @@ export interface DomainEventMap {
     previousStatus: string
     status: string
     occurredAt: string
-    actorId: string
+    actorId: string | null
   }
   'driver.vehicleAssigned': {
     driverId: string
@@ -28,27 +28,43 @@ export interface DomainEventMap {
     receivedAt: string
   }
   'geofence.crossed': { driverId: string; zoneId: string; direction: 'ENTER' | 'EXIT' }
-  'shipment.requested': { shipmentId: string; customerId: string; trackingCode: string }
+  'shipment.requested': {
+    shipmentId: string
+    customerId: string
+    trackingCode: string
+    eventId: string
+  }
   'shipment.assigned': {
     shipmentId: string
     driverId: string
     dispatcherId: string
     trackingCode: string
+    eventId: string
   }
   'shipment.statusChanged': {
     shipmentId: string
+    eventId: string
     previousStatus: string
     status: string
-    actorId: string
+    actorId: string | null
   }
   'shipment.cancelled': {
     shipmentId: string
     actorId: string
     actorRole: string
     reason: string
+    previousStatus: string
     previousDriverId: string | null
+    eventId: string
+  }
+  'shipment.suggested': {
+    shipmentId: string
+    driverId: string
+    suggestedStatus: 'PICKED_UP' | 'ARRIVED'
+    reason: 'DEPOT_GEOFENCE' | 'NEAR_DROPOFF'
   }
   'alert.created': { alertId: string; type: string; severity: string }
+  'alert.updated': { alertId: string; status: string; actorId: string }
   'zone.updated': {
     zoneId: string
     action: 'created' | 'updated' | 'deactivated'
@@ -57,6 +73,7 @@ export interface DomainEventMap {
   'security.event': { securityEventId: string; type: string; severity: string }
   'security.signal': {
     type: string
+    actorId?: string
     userId?: string
     email?: string
     ip?: string

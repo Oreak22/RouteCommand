@@ -53,6 +53,19 @@ export interface ShipmentCustomerOption {
   email: string
 }
 
+export interface DispatchCandidate {
+  driverId: string
+  name: string
+  vehicleType: string
+  capacityKg: number
+  distanceM: number
+  etaSeconds: number
+  lastSeenAt: string
+  workload: number
+  zoneMatch: boolean
+  score: number
+}
+
 interface ShipmentRow extends QueryResultRow {
   id: string
   tracking_code: string
@@ -134,6 +147,140 @@ export async function getShipment(
   return result.rows[0] ? mapShipment(result.rows[0]) : null
 }
 
+export async function listDispatchCandidates(input: {
+  shipmentId: string
+  radiusM: number
+  signalStaleSeconds: number
+  maxAccuracyM: number
+  workloadPenaltyM: number
+  freshnessPenaltyMPerMinute: number
+  zoneMatchBonusM: number
+}): Promise<DispatchCandidate[]> {
+  const result = await query<{
+    driver_id: string
+    name: string
+    vehicle_type: string
+    capacity_kg: number
+    distance_m: number
+    eta_seconds: number
+    last_seen_at: Date
+    workload: number
+    zone_match: boolean
+    score: number
+  }>(
+    `SELECT d.id AS driver_id, u.name, v.type::text AS vehicle_type,
+       v.capacity_kg::float8 AS capacity_kg,
+       ST_Distance(d.last_known_location, s.pickup_location)::float8 AS distance_m,
+       ceil(ST_Distance(d.last_known_location, s.pickup_location) / 8.0)::int AS eta_seconds,
+       d.last_seen_at,
+       (SELECT count(*)::int FROM shipments active
+        WHERE active.driver_id = d.id
+          AND active.status IN ('ASSIGNED', 'ACCEPTED', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED', 'FAILED_DELIVERY')) AS workload,
+       EXISTS (
+         SELECT 1 FROM zones z
+         WHERE z.is_active AND z.type = 'DELIVERY'
+           AND ST_Covers(z.geom, s.pickup_location)
+           AND ST_Covers(z.geom, d.last_known_location)
+       ) AS zone_match,
+       (ST_Distance(d.last_known_location, s.pickup_location)
+         + (SELECT count(*)::float8 * $5 FROM shipments active
+            WHERE active.driver_id = d.id
+              AND active.status IN ('ASSIGNED', 'ACCEPTED', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED', 'FAILED_DELIVERY'))
+         + (extract(epoch FROM now() - d.last_seen_at) / 60.0 * $6)
+         - CASE WHEN EXISTS (
+             SELECT 1 FROM zones z
+             WHERE z.is_active AND z.type = 'DELIVERY'
+               AND ST_Covers(z.geom, s.pickup_location)
+               AND ST_Covers(z.geom, d.last_known_location)
+           ) THEN $7 ELSE 0 END)::float8 AS score
+     FROM shipments s
+     JOIN drivers d ON d.status = 'AVAILABLE' AND d.last_known_location IS NOT NULL
+     JOIN users u ON u.id = d.user_id AND u.is_active
+     JOIN vehicles v ON v.id = d.vehicle_id AND v.is_active AND v.capacity_kg >= s.weight_kg
+     WHERE s.id = $1 AND s.status = 'CREATED'
+       AND d.last_seen_at >= now() - ($2::int * interval '1 second')
+       AND ST_DWithin(d.last_known_location, s.pickup_location, $3::double precision)
+       AND EXISTS (
+         SELECT 1 FROM telemetry_points point
+         WHERE point.driver_id = d.id AND point.is_filtered = false
+           AND point.recorded_at >= now() - ($2::int * interval '1 second')
+           AND point.accuracy_m <= $4
+           AND point.recorded_at = (
+             SELECT max(latest.recorded_at) FROM telemetry_points latest WHERE latest.driver_id = d.id
+           )
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM alerts a
+         WHERE a.driver_id = d.id AND a.type = 'SIGNAL_LOST' AND a.status <> 'RESOLVED'
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM shipments active
+         WHERE active.driver_id = d.id
+           AND active.status IN ('ASSIGNED', 'ACCEPTED', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED', 'FAILED_DELIVERY')
+       )
+     ORDER BY score, distance_m, d.id
+     LIMIT 50`,
+    [
+      input.shipmentId,
+      input.signalStaleSeconds,
+      input.radiusM,
+      input.maxAccuracyM,
+      input.workloadPenaltyM,
+      input.freshnessPenaltyMPerMinute,
+      input.zoneMatchBonusM,
+    ],
+  )
+  return result.rows.map((row) => ({
+    driverId: row.driver_id,
+    name: row.name,
+    vehicleType: row.vehicle_type,
+    capacityKg: Number(row.capacity_kg),
+    distanceM: Number(row.distance_m),
+    etaSeconds: row.eta_seconds,
+    lastSeenAt: row.last_seen_at.toISOString(),
+    workload: row.workload,
+    zoneMatch: row.zone_match,
+    score: Number(row.score),
+  }))
+}
+
+export async function isDriverDispatchEligible(
+  shipmentId: string,
+  driverId: string,
+  input: { radiusM: number; signalStaleSeconds: number; maxAccuracyM: number },
+  executor: DatabaseExecutor,
+): Promise<boolean> {
+  const result = await executor.query<{ eligible: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM shipments s
+       JOIN drivers d ON d.id = $2 AND d.status = 'AVAILABLE'
+       JOIN users u ON u.id = d.user_id AND u.is_active
+       JOIN vehicles v ON v.id = d.vehicle_id AND v.is_active AND v.capacity_kg >= s.weight_kg
+       JOIN LATERAL (
+         SELECT point.accuracy_m, point.recorded_at, point.is_filtered
+         FROM telemetry_points point WHERE point.driver_id = d.id
+         ORDER BY point.recorded_at DESC LIMIT 1
+       ) latest ON true
+       WHERE s.id = $1 AND s.status = 'CREATED'
+         AND d.last_known_location IS NOT NULL
+         AND d.last_seen_at >= now() - ($3::int * interval '1 second')
+         AND latest.is_filtered = false AND latest.accuracy_m <= $4
+         AND latest.recorded_at >= now() - ($3::int * interval '1 second')
+         AND ST_DWithin(d.last_known_location, s.pickup_location, $5::double precision)
+         AND NOT EXISTS (
+           SELECT 1 FROM alerts a WHERE a.driver_id = d.id
+             AND a.type = 'SIGNAL_LOST' AND a.status <> 'RESOLVED'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM shipments active WHERE active.driver_id = d.id
+             AND active.status IN ('ASSIGNED', 'ACCEPTED', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED', 'FAILED_DELIVERY')
+         )
+     ) AS eligible`,
+    [shipmentId, driverId, input.signalStaleSeconds, input.maxAccuracyM, input.radiusM],
+  )
+  return Boolean(result.rows[0]?.eligible)
+}
+
 export async function hasPublicTrackingCode(trackingCode: string): Promise<boolean> {
   const result = await query<{ exists: boolean }>(
     'SELECT EXISTS (SELECT 1 FROM shipments WHERE tracking_code = $1) AS exists',
@@ -155,6 +302,32 @@ export async function lockShipment(shipmentId: string, executor: DatabaseExecuto
     [shipmentId],
   )
   return result.rows[0] ?? null
+}
+
+export async function lockTimedOutAssignments(
+  timeoutSeconds: number,
+  limit: number,
+  executor: DatabaseExecutor,
+  shipmentId?: string,
+): Promise<Array<{ id: string; driver_id: string }>> {
+  const result = await executor.query<{ id: string; driver_id: string }>(
+    `SELECT s.id, s.driver_id
+     FROM shipments s
+     JOIN LATERAL (
+       SELECT event.status, event.created_at
+       FROM shipment_events event WHERE event.shipment_id = s.id
+       ORDER BY event.created_at DESC, event.id DESC LIMIT 1
+     ) latest ON true
+     WHERE s.status = 'ASSIGNED' AND s.driver_id IS NOT NULL
+       AND latest.status = 'ASSIGNED'
+       AND latest.created_at <= now() - ($1::int * interval '1 second')
+       AND ($3::uuid IS NULL OR s.id = $3)
+     ORDER BY latest.created_at, s.id
+     LIMIT $2
+     FOR UPDATE OF s SKIP LOCKED`,
+    [timeoutSeconds, limit, shipmentId ?? null],
+  )
+  return result.rows
 }
 
 export async function listShipments(
@@ -318,7 +491,7 @@ export async function insertShipmentEvent(
   input: {
     shipmentId: string
     status: ShipmentStatus
-    actorId: string
+    actorId: string | null
     note: string | null
     location: { lat: number; lng: number } | null
   },
@@ -412,13 +585,17 @@ export async function lockDriverForShipment(driverId: string, executor: Database
     lat: number | null
     lng: number | null
     accuracy_m: number | null
+    capacity_kg: number | null
+    vehicle_active: boolean
   }>(
     `SELECT d.id, d.user_id, d.status::text AS status, u.is_active,
        ST_Y(d.last_known_location::geometry)::float8 AS lat,
        ST_X(d.last_known_location::geometry)::float8 AS lng,
        (SELECT point.accuracy_m::float8 FROM telemetry_points point
-         WHERE point.driver_id = d.id ORDER BY point.recorded_at DESC LIMIT 1) AS accuracy_m
+         WHERE point.driver_id = d.id ORDER BY point.recorded_at DESC LIMIT 1) AS accuracy_m,
+       v.capacity_kg::float8 AS capacity_kg, v.is_active AS vehicle_active
      FROM drivers d JOIN users u ON u.id = d.user_id
+     LEFT JOIN vehicles v ON v.id = d.vehicle_id
      WHERE d.id = $1 FOR UPDATE OF d`,
     [driverId],
   )

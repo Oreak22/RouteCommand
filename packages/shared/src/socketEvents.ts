@@ -18,6 +18,12 @@ export interface ShipmentUpdatedEvent {
   trackingCode?: string
 }
 
+export interface ShipmentSuggestionEvent {
+  shipmentId: string
+  suggestedStatus: 'PICKED_UP' | 'ARRIVED'
+  reason: 'DEPOT_GEOFENCE' | 'NEAR_DROPOFF'
+}
+
 export interface ZoneUpdatedEvent {
   zoneId: string
   action: 'created' | 'updated' | 'deactivated'
@@ -52,6 +58,7 @@ export interface ServerToClientEvents {
   'driver:position': (event: DriverPositionEvent) => void
   'driver:status': (event: DriverStatusEvent) => void
   'shipment:updated': (event: ShipmentUpdatedEvent) => void
+  'shipment:suggestion': (event: ShipmentSuggestionEvent) => void
   'alert:created': (event: { alertId: string; type: string; severity: string }) => void
   'alert:updated': (event: { alertId: string; status: string }) => void
   'zone:updated': (event: ZoneUpdatedEvent) => void

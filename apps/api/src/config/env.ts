@@ -47,6 +47,38 @@ const envSchema = z
     AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(60_000).default(900_000),
     AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(100).default(10),
     DRIVER_SIGNAL_STALE_SECONDS: z.coerce.number().int().min(10).max(86_400).default(180),
+    DISPATCH_PICKUP_RADIUS_M: z.coerce.number().positive().max(100_000).default(25_000),
+    DISPATCH_ASSIGNMENT_TIMEOUT_SECONDS: z.coerce.number().int().min(30).max(86_400).default(300),
+    DISPATCH_WORKLOAD_PENALTY_M: z.coerce.number().nonnegative().max(100_000).default(3_000),
+    DISPATCH_ZONE_MATCH_BONUS_M: z.coerce.number().nonnegative().max(100_000).default(2_000),
+    DISPATCH_FRESHNESS_PENALTY_M_PER_MINUTE: z.coerce
+      .number()
+      .nonnegative()
+      .max(10_000)
+      .default(100),
+    NEW_REQUEST_DRIVER_EMAIL_ENABLED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((value) => value === 'true'),
+    NEW_REQUEST_DRIVER_RADIUS_M: z.coerce.number().positive().max(100_000).default(25_000),
+    NEW_REQUEST_MAX_DRIVERS: z.coerce.number().int().min(1).max(50).default(5),
+    SECURITY_BRUTE_FORCE_THRESHOLD: z.coerce.number().int().min(3).max(50).default(3),
+    SECURITY_DEDUPE_WINDOW_SECONDS: z.coerce.number().int().min(60).max(86_400).default(900),
+    SECURITY_ACTIVITY_WINDOW_MINUTES: z.coerce.number().int().min(5).max(1_440).default(60),
+    SECURITY_CUSTOMER_REQUEST_THRESHOLD: z.coerce.number().int().min(3).max(100).default(8),
+    SECURITY_CUSTOMER_CANCELLATION_THRESHOLD: z.coerce.number().int().min(3).max(100).default(5),
+    SECURITY_CREDENTIAL_CHANGE_THRESHOLD: z.coerce.number().int().min(2).max(20).default(3),
+    SECURITY_IMPOSSIBLE_TRAVEL_WINDOW_MINUTES: z.coerce
+      .number()
+      .int()
+      .min(15)
+      .max(1_440)
+      .default(120),
+    ALERT_SPEEDING_DURATION_SECONDS: z.coerce.number().int().min(10).max(3_600).default(30),
+    ALERT_IDLE_DURATION_SECONDS: z.coerce.number().int().min(60).max(86_400).default(600),
+    ALERT_IDLE_MAX_DRIFT_M: z.coerce.number().positive().max(1_000).default(50),
+    ALERT_SHIPMENT_DELAY_GRACE_SECONDS: z.coerce.number().int().min(0).max(86_400).default(300),
+    DROPOFF_SUGGESTION_RADIUS_M: z.coerce.number().positive().max(5_000).default(150),
     PICKUP_PROXIMITY_RADIUS_M: z.coerce.number().positive().max(10_000).default(150),
     PICKUP_PROXIMITY_MODE: z.enum(['SOFT', 'STRICT']).default('SOFT'),
     JWT_ACCESS_SECRET: z.string().min(32).default(developmentAccessSecret),
@@ -70,16 +102,50 @@ const envSchema = z
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       ),
     TILE_PROVIDER_ATTRIBUTION: z.string().min(1).default('Tiles © Esri'),
+    EMAIL_PROVIDER: z.enum(['smtp', 'console']).default('smtp'),
     SMTP_HOST: z.string().default('localhost'),
     SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
     SMTP_SECURE: booleanFromString,
     SMTP_USER: z.string().default(''),
-    SMTP_PASSWORD: z.string().default(''),
-    SMTP_FROM: z.string().min(3).default('RouteCommand <no-reply@routecommand.local>'),
+    SMTP_PASS: z.string().default(''),
+    SMTP_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(20).default(3),
+    SMTP_MAX_MESSAGES: z.coerce.number().int().min(1).max(10_000).default(100),
+    EMAIL_FROM: z.string().min(3).default('RouteCommand <no-reply@routecommand.local>'),
+    EMAIL_RECIPIENT_MAX_PER_HOUR: z.coerce.number().int().min(1).max(1_000).default(20),
+    EMAIL_GLOBAL_MAX_PER_HOUR: z.coerce.number().int().min(1).max(100_000).default(5_000),
+    EMAIL_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().min(1).max(1_000).default(10),
     GEOIP_DATABASE_PATH: z.string().default(''),
   })
   .superRefine((values, context) => {
     if (values.NODE_ENV === 'production') {
+      if (values.EMAIL_PROVIDER !== 'smtp') {
+        context.addIssue({
+          code: 'custom',
+          path: ['EMAIL_PROVIDER'],
+          message: 'Production email delivery must use SMTP.',
+        })
+      }
+      if (values.SMTP_HOST === 'localhost') {
+        context.addIssue({
+          code: 'custom',
+          path: ['SMTP_HOST'],
+          message: 'Set a reachable SMTP host in production.',
+        })
+      }
+      if (!values.EMAIL_FROM.includes('@')) {
+        context.addIssue({
+          code: 'custom',
+          path: ['EMAIL_FROM'],
+          message: 'Set a valid sender address in production.',
+        })
+      }
+      if (Boolean(values.SMTP_USER) !== Boolean(values.SMTP_PASS)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['SMTP_PASS'],
+          message: 'SMTP_USER and SMTP_PASS must be configured together.',
+        })
+      }
       if (values.JWT_ACCESS_SECRET === developmentAccessSecret) {
         context.addIssue({
           code: 'custom',
@@ -109,6 +175,8 @@ export class InvalidEnvironmentConfigurationError extends Error {
 
 export function parseEnvironment(source: NodeJS.ProcessEnv): AppEnvironment {
   const normalizedSource = { ...source }
+  normalizedSource.EMAIL_FROM ??= normalizedSource.SMTP_FROM
+  normalizedSource.SMTP_PASS ??= normalizedSource.SMTP_PASSWORD
   if (!normalizedSource.CORS_ORIGINS && normalizedSource.WEB_ORIGIN) {
     normalizedSource.CORS_ORIGINS = normalizedSource.WEB_ORIGIN
   }

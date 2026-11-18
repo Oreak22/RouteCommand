@@ -4,12 +4,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Command,
+  ClipboardList,
   LayoutDashboard,
   LogOut,
+  Mail,
   MapPinned,
   Menu,
   PackageCheck,
   Search,
+  ShieldAlert,
   Truck,
   UsersRound,
 } from 'lucide-react'
@@ -18,10 +21,11 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 
 import type { AppRole } from '../app/RequireRole'
 import { Avatar } from '../components/ui/Avatar'
-import { Badge } from '../components/ui/Badge'
 import { Drawer } from '../components/ui/Drawer'
 import { IconButton } from '../components/ui/IconButton'
 import { SearchBar } from '../components/ui/SearchBar'
+import { AlertsBell } from '../features/alerts/components/AlertsBell'
+import { AlertToastListener } from '../features/alerts/components/AlertToastListener'
 import { useAuth } from '../features/auth/auth-context'
 import { RealtimeConnectionBanner } from '../features/realtime/RealtimeConnectionBanner'
 import { ThemeToggle } from '../theme/ThemeToggle'
@@ -33,6 +37,8 @@ const navItems: { label: string; to: string; icon: typeof LayoutDashboard; roles
     icon: LayoutDashboard,
     roles: ['ADMIN', 'DISPATCHER'],
   },
+  { label: 'Alerts', to: '/app/alerts', icon: Activity, roles: ['ADMIN', 'DISPATCHER'] },
+  { label: 'Dispatch', to: '/app/dispatch', icon: ClipboardList, roles: ['ADMIN', 'DISPATCHER'] },
   { label: 'Zones', to: '/map', icon: MapPinned, roles: ['ADMIN', 'DISPATCHER'] },
   {
     label: 'Shipments',
@@ -42,6 +48,14 @@ const navItems: { label: string; to: string; icon: typeof LayoutDashboard; roles
   },
   { label: 'Drivers', to: '/app/drivers', icon: UsersRound, roles: ['ADMIN', 'DISPATCHER'] },
   { label: 'Vehicles', to: '/app/vehicles', icon: Truck, roles: ['ADMIN', 'DISPATCHER'] },
+  { label: 'Email', to: '/app/admin/email', icon: Mail, roles: ['ADMIN'] },
+  { label: 'Security', to: '/app/admin/security', icon: ShieldAlert, roles: ['ADMIN'] },
+  {
+    label: 'Notifications',
+    to: '/account/notifications',
+    icon: Bell,
+    roles: ['ADMIN', 'DISPATCHER', 'DRIVER', 'CUSTOMER'],
+  },
   { label: 'Driver workspace', to: '/driver', icon: Truck, roles: ['DRIVER'] },
 ] as const
 
@@ -103,6 +117,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-base-200">
+      {(user?.role === 'ADMIN' || user?.role === 'DISPATCHER') && <AlertToastListener />}
       <div className="flex min-h-screen">
         <aside
           className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-base-content/10 bg-base-100 px-3 py-5 transition-[width] xl:flex ${collapsed ? 'w-20' : 'w-64'}`}
@@ -152,17 +167,7 @@ export function AppShell() {
             <IconButton className="ml-auto" variant="ghost" aria-label="Search" title="Search">
               <Search aria-hidden="true" />
             </IconButton>
-            <div className="relative">
-              <IconButton variant="ghost" aria-label="Notifications, 3 unread">
-                <Bell aria-hidden="true" />
-              </IconButton>
-              <Badge
-                tone="error"
-                className="absolute -right-0.5 -top-0.5 grid size-4 place-items-center border-0 p-0 text-xs"
-              >
-                3
-              </Badge>
-            </div>
+            {(user?.role === 'ADMIN' || user?.role === 'DISPATCHER') && <AlertsBell />}
             <ThemeToggle />
             <div className="flex items-center gap-2 rounded-field p-1.5">
               <Avatar name={user?.name ?? 'Account'} size="sm" />

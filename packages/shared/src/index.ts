@@ -295,6 +295,27 @@ export const shipmentCustomerQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 })
 
+export const dispatchSuggestionsQuerySchema = z.object({
+  shipmentId: databaseUuidSchema,
+})
+export const dispatchAssignSchema = z.object({
+  shipmentId: databaseUuidSchema,
+  driverId: databaseUuidSchema,
+})
+export const dispatchBatchAssignSchema = z
+  .object({
+    shipmentIds: z.array(databaseUuidSchema).min(2).max(10),
+    driverId: databaseUuidSchema,
+  })
+  .refine((input) => new Set(input.shipmentIds).size === input.shipmentIds.length, {
+    path: ['shipmentIds'],
+    message: 'Choose each shipment only once.',
+  })
+export const shipmentAcceptSchema = z.object({}).default({})
+export const shipmentRejectSchema = z.object({
+  reason: z.string().trim().min(1).max(1_000),
+})
+
 export const telemetryPointSchema = z
   .object({
     lat: z.number().finite().min(-90).max(90),
@@ -338,6 +359,41 @@ export type TelemetryBatchInput = z.infer<typeof telemetryBatchSchema>
 export type TelemetryTrackQuery = z.infer<typeof telemetryTrackQuerySchema>
 export type TelemetryPointsQuery = z.infer<typeof telemetryPointsQuerySchema>
 
+export const alertTypes = [
+  'ZONE_ENTER',
+  'ZONE_EXIT',
+  'RESTRICTED_ZONE_BREACH',
+  'SIGNAL_LOST',
+  'IDLE_TOO_LONG',
+  'SPEEDING',
+  'LOW_ACCURACY',
+  'SHIPMENT_DELAYED',
+  'OFF_ROUTE',
+] as const
+export const alertTypeSchema = z.enum(alertTypes)
+export const alertSeverities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const
+export const alertSeveritySchema = z.enum(alertSeverities)
+export const alertStatuses = ['OPEN', 'ACKNOWLEDGED', 'RESOLVED'] as const
+export const alertStatusSchema = z.enum(alertStatuses)
+
+export const listAlertsQuerySchema = z.object({
+  status: alertStatusSchema.optional(),
+  severity: alertSeveritySchema.optional(),
+  type: alertTypeSchema.optional(),
+  driverId: databaseUuidSchema.optional(),
+  zoneId: databaseUuidSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  offset: z.coerce.number().int().min(0).default(0),
+})
+export const alertIdParamsSchema = z.object({ alertId: databaseUuidSchema })
+export const alertActionSchema = z
+  .object({ note: z.string().trim().max(500).optional() })
+  .default({})
+export type AlertType = z.infer<typeof alertTypeSchema>
+export type AlertSeverity = z.infer<typeof alertSeveritySchema>
+export type AlertStatus = z.infer<typeof alertStatusSchema>
+export type ListAlertsQuery = z.infer<typeof listAlertsQuerySchema>
+
 export const transitionShipmentSchema = z.object({
   toStatus: shipmentStatusSchema,
   note: z.string().trim().max(2_000).optional(),
@@ -352,6 +408,9 @@ export const cancelShipmentSchema = z.object({
 export type CreateShipmentInput = z.infer<typeof createShipmentSchema>
 export type UpdateShipmentInput = z.infer<typeof updateShipmentSchema>
 export type ListShipmentsQuery = z.infer<typeof listShipmentsQuerySchema>
+export type DispatchSuggestionsQuery = z.infer<typeof dispatchSuggestionsQuerySchema>
+export type DispatchAssignInput = z.infer<typeof dispatchAssignSchema>
+export type DispatchBatchAssignInput = z.infer<typeof dispatchBatchAssignSchema>
 export type TransitionShipmentInput = z.infer<typeof transitionShipmentSchema>
 export type CancelShipmentInput = z.infer<typeof cancelShipmentSchema>
 
@@ -440,6 +499,31 @@ export const updateManagedUserSchema = z
 
 export type CreateManagedUserInput = z.infer<typeof createManagedUserSchema>
 export type UpdateManagedUserInput = z.infer<typeof updateManagedUserSchema>
+
+export const notificationEmailPreferenceTypes = [
+  'CUSTOMER_SHIPMENT_UPDATES',
+  'DRIVER_REQUEST_INVITATIONS',
+  'DISPATCHER_NEW_REQUESTS',
+] as const
+export const notificationEmailPreferenceTypeSchema = z.enum(notificationEmailPreferenceTypes)
+export const notificationEmailPreferenceSchema = z.object({
+  type: notificationEmailPreferenceTypeSchema,
+  emailEnabled: z.boolean(),
+})
+export const updateNotificationPreferencesSchema = z
+  .object({ preferences: z.array(notificationEmailPreferenceSchema).min(1).max(3) })
+  .superRefine(({ preferences }, context) => {
+    const types = preferences.map((preference) => preference.type)
+    if (new Set(types).size !== types.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['preferences'],
+        message: 'Preference types must be unique.',
+      })
+    }
+  })
+export type NotificationEmailPreferenceType = z.infer<typeof notificationEmailPreferenceTypeSchema>
+export type NotificationEmailPreference = z.infer<typeof notificationEmailPreferenceSchema>
 
 export const managedUserIdParamsSchema = z.object({ userId: databaseUuidSchema })
 export const listManagedUsersQuerySchema = z.object({

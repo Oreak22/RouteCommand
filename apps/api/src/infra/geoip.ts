@@ -7,7 +7,6 @@ import { logger } from '../core/logger.js'
 let readerPromise: Promise<Reader<CityResponse>> | null = null
 let warnedAboutDatabase = false
 
-/** Return country and region only; the database lookup stays local and avoids storing exact coordinates. */
 export async function approximateIpGeolocation(ip: string | undefined): Promise<string | null> {
   if (!env.GEOIP_DATABASE_PATH || !ip || !validate(ip)) return null
 

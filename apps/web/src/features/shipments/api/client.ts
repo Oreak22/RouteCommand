@@ -102,4 +102,14 @@ export const shipmentsApi = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  accept: (id: string) =>
+    request<{ shipment: Shipment; event: ShipmentEvent }>(`/shipments/${id}/accept`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  reject: (id: string, reason: string) =>
+    request<{ shipment: Shipment; event: ShipmentEvent }>(`/shipments/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
 }

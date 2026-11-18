@@ -83,6 +83,17 @@ export async function updateUser(
   actorId: string,
   context: AuthRequestContext,
 ): Promise<ManagedUser> {
+  if (actorId === userId && input.role !== undefined && input.role !== 'ADMIN') {
+    domainEventBus.publish('security.signal', {
+      type: 'user_role_changed',
+      actorId,
+      userId,
+      occurredAt: new Date().toISOString(),
+      evidence: { requestedRole: input.role, selfServiceAttempt: true },
+      ...(context.ip ? { ip: context.ip } : {}),
+      ...(context.userAgent ? { userAgent: context.userAgent } : {}),
+    })
+  }
   if (actorId === userId && (input.isActive === false || (input.role && input.role !== 'ADMIN'))) {
     throw new ForbiddenError('You cannot deactivate or remove your own administrator access.')
   }
@@ -133,6 +144,7 @@ export async function updateUser(
     if (input.role !== undefined || input.isActive !== undefined) {
       domainEventBus.publishAfterCommit(afterCommit, 'security.signal', {
         type: input.role !== undefined ? 'user_role_changed' : 'user_deactivated',
+        actorId,
         userId,
         occurredAt: new Date().toISOString(),
         evidence: {

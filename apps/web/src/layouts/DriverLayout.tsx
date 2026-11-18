@@ -1,10 +1,11 @@
-import { ClipboardList, LogOut, UserRound, Wifi, WifiOff } from 'lucide-react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { Bell, ClipboardList, LogOut, UserRound, Wifi, WifiOff } from 'lucide-react'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import type { NavLinkRenderProps } from 'react-router-dom'
 
 import { useAuth } from '../features/auth/auth-context'
 import { RealtimeConnectionBanner } from '../features/realtime/RealtimeConnectionBanner'
 import { useRealtime } from '../features/realtime/useRealtime'
+import { ShipmentSuggestionListener } from '../features/shipments/components/ShipmentSuggestionListener'
 import { ThemeToggle } from '../theme/ThemeToggle'
 
 const tabs = [
@@ -18,6 +19,7 @@ export function DriverLayout() {
   const { status } = useRealtime()
   return (
     <div className="mx-auto flex min-h-screen max-w-3xl flex-col bg-base-200">
+      <ShipmentSuggestionListener />
       <RealtimeConnectionBanner />
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-base-content/10 bg-base-100 px-4">
         <div>
@@ -43,6 +45,13 @@ export function DriverLayout() {
           >
             <UserRound className="size-4" aria-hidden="true" />
           </NavLink>
+          <Link
+            className="btn btn-ghost btn-sm btn-square"
+            to="/account/notifications"
+            aria-label="Notification preferences"
+          >
+            <Bell className="size-4" aria-hidden="true" />
+          </Link>
           <button
             className="btn btn-ghost btn-sm btn-square"
             aria-label="Sign out"

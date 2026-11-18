@@ -12,7 +12,7 @@ services:
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
       SMTP_SECURE: 'false'
-      SMTP_FROM: 'RouteCommand <no-reply@routecommand.local>'
+      EMAIL_FROM: 'RouteCommand <no-reply@routecommand.local>'
       GEOIP_DATABASE_PATH: /data/GeoLite2-City.mmdb
     ports:
       - '${API_PORT:-3000}:3000'

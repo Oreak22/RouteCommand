@@ -6,19 +6,39 @@ import { logger } from './core/logger.js'
 import { closeDatabasePool } from './db/pool.js'
 import { closeEmailInfrastructure, startEmailInfrastructure } from './infra/email-queue.js'
 import { closeRedisClients, connectRedisClients } from './infra/redis.js'
+import { startDispatchTimeoutWorker } from './modules/dispatch/worker.js'
+import { startGeofenceWorker } from './modules/geofence/worker.js'
+import { startNotificationEventHandlers } from './modules/notifications/worker.js'
 import { startRealtimeGateway } from './modules/realtime/gateway.js'
+import { startSecurityEventEmailHandler } from './modules/security/email-handler.js'
+import { startSecuritySignalWorker } from './modules/security/worker.js'
 import { startTelemetryWorker } from './modules/telemetry/worker.js'
 
 let server: Server | undefined
 let shuttingDown: Promise<void> | undefined
 let stopTelemetryWorker: (() => Promise<void>) | undefined
 let stopRealtimeGateway: (() => Promise<void>) | undefined
+let stopGeofenceWorker: (() => void) | undefined
+let stopDispatchTimeoutWorker: (() => void) | undefined
+let stopNotificationEventHandlers: (() => void) | undefined
+let stopSecuritySignalWorker: (() => void) | undefined
+let stopSecurityEmailHandler: (() => void) | undefined
 
 async function closeDependencies(): Promise<void> {
   await stopRealtimeGateway?.()
   stopRealtimeGateway = undefined
   await stopTelemetryWorker?.()
   stopTelemetryWorker = undefined
+  stopGeofenceWorker?.()
+  stopGeofenceWorker = undefined
+  stopDispatchTimeoutWorker?.()
+  stopDispatchTimeoutWorker = undefined
+  stopNotificationEventHandlers?.()
+  stopNotificationEventHandlers = undefined
+  stopSecuritySignalWorker?.()
+  stopSecuritySignalWorker = undefined
+  stopSecurityEmailHandler?.()
+  stopSecurityEmailHandler = undefined
   await closeEmailInfrastructure()
   await Promise.allSettled([closeDatabasePool(), closeRedisClients()])
 }
@@ -61,7 +81,12 @@ export async function startServer(): Promise<Server> {
   try {
     await connectRedisClients()
     await startEmailInfrastructure()
+    stopNotificationEventHandlers = startNotificationEventHandlers()
+    stopSecuritySignalWorker = startSecuritySignalWorker()
+    stopSecurityEmailHandler = startSecurityEventEmailHandler()
     stopTelemetryWorker = await startTelemetryWorker()
+    stopGeofenceWorker = await startGeofenceWorker()
+    stopDispatchTimeoutWorker = await startDispatchTimeoutWorker()
   } catch (error) {
     await closeDependencies()
     throw error

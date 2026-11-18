@@ -188,11 +188,22 @@ export function ShipmentsWorkspace() {
     if (!shipmentQuery.data) return
     setActionError(null)
     try {
-      await transition.mutateAsync({
-        id: shipmentQuery.data.id,
-        input: { toStatus, note: transitionNote.trim() || undefined },
-        key: crypto.randomUUID(),
-      })
+      if (role === 'DRIVER' && toStatus === 'ACCEPTED') {
+        await shipmentsApi.accept(shipmentQuery.data.id)
+        await queryClient.invalidateQueries({ queryKey: shipmentKeys.all })
+      } else if (role === 'DRIVER' && toStatus === 'CREATED') {
+        await shipmentsApi.reject(
+          shipmentQuery.data.id,
+          transitionNote.trim() || 'Driver declined assignment.',
+        )
+        await queryClient.invalidateQueries({ queryKey: shipmentKeys.all })
+      } else {
+        await transition.mutateAsync({
+          id: shipmentQuery.data.id,
+          input: { toStatus, note: transitionNote.trim() || undefined },
+          key: crypto.randomUUID(),
+        })
+      }
       setTransitionNote('')
       pushToast(`Shipment marked ${prettyStatus(toStatus)}.`, 'success')
     } catch (error) {
@@ -446,7 +457,11 @@ export function ShipmentsWorkspace() {
                       disabled={nextStatus === 'ASSIGNED' && !shipmentQuery.data?.driverId}
                       onClick={() => void changeStatus(nextStatus)}
                     >
-                      Mark {prettyStatus(nextStatus)}
+                      {role === 'DRIVER' && nextStatus === 'ACCEPTED'
+                        ? 'Accept assignment'
+                        : role === 'DRIVER' && nextStatus === 'CREATED'
+                          ? 'Decline assignment'
+                          : `Mark ${prettyStatus(nextStatus)}`}
                     </Button>
                     {nextStatus === 'ASSIGNED' && !shipmentQuery.data?.driverId && (
                       <span className="self-center text-xs text-base-content/55">

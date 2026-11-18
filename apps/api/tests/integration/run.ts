@@ -22,6 +22,10 @@ let mailpit: Awaited<ReturnType<GenericContainer['start']>> | undefined
 let server: import('node:http').Server | undefined
 let stopTelemetryWorker: (() => Promise<void>) | undefined
 let stopRealtimeGateway: (() => Promise<void>) | undefined
+let stopGeofenceWorker: (() => void) | undefined
+let stopNotificationHandlers: (() => void) | undefined
+let stopSecuritySignalWorker: (() => void) | undefined
+let stopSecurityEmailHandler: (() => void) | undefined
 type IntegrationSocket = Socket<ServerToClientEvents, ClientToServerEvents>
 const realtimeSockets: IntegrationSocket[] = []
 try {
@@ -71,6 +75,9 @@ try {
   process.env.RATE_LIMIT_MAX = '1000'
   process.env.AUTH_RATE_LIMIT_MAX = '100'
   process.env.TELEMETRY_RATE_LIMIT_PER_SECOND = '10000'
+  process.env.DISPATCH_ASSIGNMENT_TIMEOUT_SECONDS = '30'
+  process.env.SECURITY_CUSTOMER_REQUEST_THRESHOLD = '3'
+  process.env.SECURITY_CUSTOMER_CANCELLATION_THRESHOLD = '3'
   process.env.DATABASE_URL = externalDatabaseUrl ?? postgres!.getConnectionUri()
   process.env.REDIS_URL = externalRedisUrl ?? redis!.getConnectionUrl()
   process.env.SMTP_HOST = externalSmtpHost ?? mailpit!.getHost()
@@ -99,6 +106,8 @@ try {
   await emailModule.startEmailInfrastructure()
   const telemetryWorkerModule = await import('../../src/modules/telemetry/worker.js')
   stopTelemetryWorker = await telemetryWorkerModule.startTelemetryWorker()
+  const geofenceWorkerModule = await import('../../src/modules/geofence/worker.js')
+  stopGeofenceWorker = await geofenceWorkerModule.startGeofenceWorker()
   await Promise.all([databaseModule.checkDatabaseHealth(), redisModule.checkRedisHealth()])
   const { resetDatabase } = await import('./helpers.js')
   await resetDatabase(databaseModule.pool)
@@ -110,6 +119,12 @@ try {
     true,
     'integration reset must preserve PostGIS SRID data',
   )
+  const notificationWorkerModule = await import('../../src/modules/notifications/worker.js')
+  const securityWorkerModule = await import('../../src/modules/security/worker.js')
+  const securityEmailModule = await import('../../src/modules/security/email-handler.js')
+  stopNotificationHandlers = notificationWorkerModule.startNotificationEventHandlers()
+  stopSecuritySignalWorker = securityWorkerModule.startSecuritySignalWorker()
+  stopSecurityEmailHandler = securityEmailModule.startSecurityEventEmailHandler()
   const app = createApp()
   const runningServer = await new Promise<import('node:http').Server>((resolve, reject) => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance))
@@ -182,6 +197,45 @@ try {
       }
       socket.on('driver:position', onPosition)
     })
+  const waitForAlertCreated = (
+    socket: IntegrationSocket,
+    type: string,
+  ): Promise<{ alertId: string; type: string; severity: string }> =>
+    new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        socket.off('alert:created', onAlert)
+        reject(new Error(`Realtime ${type} alert was not received.`))
+      }, 5_000)
+      const onAlert = (event: { alertId: string; type: string; severity: string }) => {
+        if (event.type !== type) return
+        clearTimeout(timeout)
+        socket.off('alert:created', onAlert)
+        resolve(event)
+      }
+      socket.on('alert:created', onAlert)
+    })
+  const waitForShipmentSuggestion = (
+    socket: IntegrationSocket,
+    shipmentId: string,
+    suggestedStatus: 'PICKED_UP' | 'ARRIVED',
+  ): Promise<{ shipmentId: string; suggestedStatus: 'PICKED_UP' | 'ARRIVED'; reason: string }> =>
+    new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        socket.off('shipment:suggestion', onSuggestion)
+        reject(new Error(`Realtime ${suggestedStatus} suggestion was not received.`))
+      }, 5_000)
+      const onSuggestion = (event: {
+        shipmentId: string
+        suggestedStatus: 'PICKED_UP' | 'ARRIVED'
+        reason: string
+      }) => {
+        if (event.shipmentId !== shipmentId || event.suggestedStatus !== suggestedStatus) return
+        clearTimeout(timeout)
+        socket.off('shipment:suggestion', onSuggestion)
+        resolve(event)
+      }
+      socket.on('shipment:suggestion', onSuggestion)
+    })
   const loginAs = async (email: string, password: string): Promise<string> => {
     const response = await fetch(`${baseUrl}/api/v1/auth/login`, {
       method: 'POST',
@@ -222,6 +276,10 @@ try {
     '/api/v1/shipments/{shipmentId}',
     '/api/v1/shipments/{shipmentId}/transition',
     '/api/v1/shipments/{shipmentId}/events',
+    '/api/v1/alerts',
+    '/api/v1/alerts/stats',
+    '/api/v1/alerts/{alertId}/acknowledge',
+    '/api/v1/alerts/{alertId}/resolve',
   ])
     assert(path in openApiDocument.paths, `OpenAPI should document ${path}`)
   assert.equal(swaggerUi.status, 200)
@@ -957,6 +1015,172 @@ try {
   )
 
   const { domainEventBus } = await import('../../src/core/events/domain-event-bus.js')
+  const { processGeofenceFix } = await import('../../src/modules/geofence/worker.js')
+  const testRestrictedZone = await databaseModule.pool.query<{ id: string }>(
+    `INSERT INTO zones (name, type, geom, color, is_active, created_by)
+     VALUES ($1, 'RESTRICTED', ST_Multi(ST_GeomFromText(
+       'POLYGON((3.2 6.45,3.202 6.45,3.202 6.452,3.2 6.452,3.2 6.45))', 4326
+     ))::geography, '#B84B3B', true, $2) RETURNING id`,
+    [`Phase Ten Restricted ${suffix}`, adminInsert.rows[0]!.id],
+  )
+  const testDepotZone = await databaseModule.pool.query<{ id: string }>(
+    `INSERT INTO zones (name, type, geom, color, is_active, created_by)
+     VALUES ($1, 'DEPOT', ST_Multi(ST_GeomFromText(
+       'POLYGON((3.32 6.62,3.35 6.62,3.35 6.64,3.32 6.64,3.32 6.62))', 4326
+     ))::geography, '#5374A5', true, $2) RETURNING id`,
+    [`Phase Ten Depot ${suffix}`, adminInsert.rows[0]!.id],
+  )
+  const phase10DriverId = driverProfile.rows[0]!.id
+  await databaseModule.pool.query('DELETE FROM geofence_states WHERE driver_id = $1', [
+    phase10DriverId,
+  ])
+  const publishGeofenceFix = async (lat: number, lng: number) => {
+    await processGeofenceFix({
+      driverId: phase10DriverId,
+      lat,
+      lng,
+      accuracyM: 8,
+      speedMps: 5,
+      headingDeg: null,
+      recordedAt: new Date().toISOString(),
+      receivedAt: new Date().toISOString(),
+    })
+  }
+  const outsideAlertZone = { lat: 6.451, lng: 3.203 }
+  await publishGeofenceFix(outsideAlertZone.lat, outsideAlertZone.lng)
+  const initialGeofenceState = await databaseModule.pool.query<{ is_inside: boolean }>(
+    'SELECT is_inside FROM geofence_states WHERE driver_id = $1 AND zone_id = $2',
+    [phase10DriverId, testRestrictedZone.rows[0]!.id],
+  )
+  assert.equal(initialGeofenceState.rows[0]?.is_inside, false)
+  const initialDepotState = await databaseModule.pool.query<{ is_inside: boolean }>(
+    'SELECT is_inside FROM geofence_states WHERE driver_id = $1 AND zone_id = $2',
+    [phase10DriverId, testDepotZone.rows[0]!.id],
+  )
+  assert.equal(initialDepotState.rows[0]?.is_inside, false)
+
+  const restrictedAlertEvent = waitForAlertCreated(dispatcherSocket, 'RESTRICTED_ZONE_BREACH')
+  await publishGeofenceFix(6.451, 3.2015)
+  const pendingGeofenceState = await databaseModule.pool.query<{
+    is_inside: boolean
+    pending_count: number
+  }>('SELECT is_inside, pending_count FROM geofence_states WHERE driver_id = $1 AND zone_id = $2', [
+    phase10DriverId,
+    testRestrictedZone.rows[0]!.id,
+  ])
+  assert.equal(pendingGeofenceState.rows[0]?.is_inside, false)
+  assert.equal(pendingGeofenceState.rows[0]?.pending_count, 1)
+  await publishGeofenceFix(6.4512, 3.2014)
+  const confirmedGeofenceState = await databaseModule.pool.query<{
+    is_inside: boolean
+    pending_count: number
+  }>('SELECT is_inside, pending_count FROM geofence_states WHERE driver_id = $1 AND zone_id = $2', [
+    phase10DriverId,
+    testRestrictedZone.rows[0]!.id,
+  ])
+  assert.equal(confirmedGeofenceState.rows[0]?.is_inside, true)
+  assert.equal(confirmedGeofenceState.rows[0]?.pending_count, 0)
+  const restrictedAlertEventResult = await restrictedAlertEvent
+  assert.equal(restrictedAlertEventResult.severity, 'CRITICAL')
+
+  const openRestrictedAlertsResponse = await fetch(
+    `${baseUrl}/api/v1/alerts?status=OPEN&type=RESTRICTED_ZONE_BREACH&driverId=${phase10DriverId}`,
+    { headers: fleetHeaders(dispatcherToken) },
+  )
+  assert.equal(openRestrictedAlertsResponse.status, 200)
+  const openRestrictedAlerts = (await openRestrictedAlertsResponse.json()) as {
+    data: { id: string; status: string }[]
+    meta: { total: number }
+  }
+  assert.equal(openRestrictedAlerts.meta.total, 1, 'a confirmed restricted entry creates one alert')
+  const restrictedAlertId = openRestrictedAlerts.data[0]!.id
+
+  await publishGeofenceFix(6.4513, 3.2013)
+  const deduplicatedAlertCount = await databaseModule.pool.query<{ count: number }>(
+    `SELECT count(*)::int AS count FROM alerts
+     WHERE type = 'RESTRICTED_ZONE_BREACH' AND driver_id = $1 AND zone_id = $2
+       AND status <> 'RESOLVED'`,
+    [phase10DriverId, testRestrictedZone.rows[0]!.id],
+  )
+  assert.equal(deduplicatedAlertCount.rows[0]?.count, 1, 'staying inside does not duplicate alerts')
+
+  const acknowledgeAlertResponse = await fetch(
+    `${baseUrl}/api/v1/alerts/${restrictedAlertId}/acknowledge`,
+    {
+      method: 'POST',
+      headers: { ...fleetHeaders(dispatcherToken), 'content-type': 'application/json' },
+      body: JSON.stringify({ note: 'Integration acknowledgement' }),
+    },
+  )
+  assert.equal(acknowledgeAlertResponse.status, 200)
+  assert.equal(
+    ((await acknowledgeAlertResponse.json()) as { data: { status: string } }).data.status,
+    'ACKNOWLEDGED',
+  )
+  const resolveAlertResponse = await fetch(
+    `${baseUrl}/api/v1/alerts/${restrictedAlertId}/resolve`,
+    {
+      method: 'POST',
+      headers: { ...fleetHeaders(dispatcherToken), 'content-type': 'application/json' },
+      body: JSON.stringify({ note: 'Integration resolution' }),
+    },
+  )
+  assert.equal(resolveAlertResponse.status, 200)
+  assert.equal(
+    ((await resolveAlertResponse.json()) as { data: { status: string } }).data.status,
+    'RESOLVED',
+  )
+  const alertAuditCount = await databaseModule.pool.query<{ count: number }>(
+    `SELECT count(*)::int AS count FROM audit_logs
+     WHERE entity = 'alert' AND entity_id = $1
+       AND action IN ('alerts.acknowledged', 'alerts.resolved')`,
+    [restrictedAlertId],
+  )
+  assert.equal(alertAuditCount.rows[0]?.count, 2, 'both alert actions are audited')
+
+  const depotPickupShipment = await databaseModule.pool.query<{ id: string }>(
+    `INSERT INTO shipments
+      (tracking_code, customer_id, driver_id, status, pickup_address, pickup_location,
+       dropoff_address, dropoff_location, weight_kg)
+     VALUES ($1, $2, $3, 'ASSIGNED', 'Depot', ST_SetSRID(ST_MakePoint(3.33, 6.63), 4326)::geography,
+       'Dropoff', ST_SetSRID(ST_MakePoint(3.4, 6.5), 4326)::geography, 1) RETURNING id`,
+    [`RC-P10-D-${suffix.slice(0, 8)}`, customerRecord.rows[0]!.id, phase10DriverId],
+  )
+  await publishGeofenceFix(6.63, 3.319)
+  const pickupSuggestion = waitForShipmentSuggestion(
+    driverSocket,
+    depotPickupShipment.rows[0]!.id,
+    'PICKED_UP',
+  )
+  await publishGeofenceFix(6.63, 3.321)
+  await publishGeofenceFix(6.631, 3.322)
+  assert.equal((await pickupSuggestion).reason, 'DEPOT_GEOFENCE')
+
+  const arrivalSuggestionShipment = await databaseModule.pool.query<{ id: string }>(
+    `INSERT INTO shipments
+      (tracking_code, customer_id, driver_id, status, pickup_address, pickup_location,
+       dropoff_address, dropoff_location, weight_kg)
+     VALUES ($1, $2, $3, 'IN_TRANSIT', 'Pickup', ST_SetSRID(ST_MakePoint(3.3, 6.4), 4326)::geography,
+       'Near dropoff', ST_SetSRID(ST_MakePoint(3.4, 6.5), 4326)::geography, 1) RETURNING id`,
+    [`RC-P10-A-${suffix.slice(0, 8)}`, customerRecord.rows[0]!.id, phase10DriverId],
+  )
+  const arrivalSuggestion = waitForShipmentSuggestion(
+    driverSocket,
+    arrivalSuggestionShipment.rows[0]!.id,
+    'ARRIVED',
+  )
+  await publishGeofenceFix(6.5, 3.4)
+  assert.equal((await arrivalSuggestion).reason, 'NEAR_DROPOFF')
+  const suggestionDidNotAdvanceShipment = await databaseModule.pool.query<{ status: string }>(
+    'SELECT status FROM shipments WHERE id = $1',
+    [arrivalSuggestionShipment.rows[0]!.id],
+  )
+  assert.equal(
+    suggestionDidNotAdvanceShipment.rows[0]?.status,
+    'IN_TRANSIT',
+    'near-dropoff suggestion must not transition shipment status automatically',
+  )
+
   const fleetEvents: string[] = []
   const stopAssignmentListener = domainEventBus.subscribe('driver.vehicleAssigned', () => {
     fleetEvents.push('driver.vehicleAssigned')
@@ -1210,11 +1434,16 @@ try {
     [shipmentDriverUserBody.data.id],
   )
   const shipmentDriverId = shipmentDriverProfile.rows[0]!.id
+  const dispatchVehicle = await databaseModule.pool.query<{ id: string }>(
+    `INSERT INTO vehicles (plate, type, capacity_kg)
+     VALUES ($1, 'VAN', 1200) RETURNING id`,
+    [`DSP-${suffix.slice(0, 8)}`],
+  )
   await databaseModule.pool.query(
     `UPDATE drivers SET status = 'AVAILABLE', last_known_location =
        ST_SetSRID(ST_MakePoint(3.35, 6.60), 4326)::geography,
-       last_seen_at = now() WHERE id = $1`,
-    [shipmentDriverId],
+       last_seen_at = now(), vehicle_id = $2 WHERE id = $1`,
+    [shipmentDriverId, dispatchVehicle.rows[0]!.id],
   )
   await databaseModule.pool.query(
     `INSERT INTO telemetry_points (driver_id, location, accuracy_m, recorded_at, source)
@@ -1234,6 +1463,9 @@ try {
     (await shipmentDriverLogin.json()) as { data: { accessToken: string } }
   ).data.accessToken
 
+  const dispatchDriverSocket = createRealtimeSocket(shipmentDriverToken)
+  await waitForSocketConnect(dispatchDriverSocket)
+
   const secondCustomer = await databaseModule.pool.query<{ id: string }>(
     `INSERT INTO users (email, name, role, password_hash, email_verified_at)
      VALUES ($1, 'Second Shipment Customer', 'CUSTOMER', $2, now()) RETURNING id`,
@@ -1244,7 +1476,7 @@ try {
     'admin-phase4-integration-password',
   )
   const shipmentEventsModule = await import('../../src/core/events/domain-event-bus.js')
-  const shipmentRequestedEvents: { shipmentId: string; customerId: string }[] = []
+  const shipmentRequestedEvents: { shipmentId: string; customerId: string; eventId: string }[] = []
   const stopShipmentRequestedListener = shipmentEventsModule.domainEventBus.subscribe(
     'shipment.requested',
     (event) => shipmentRequestedEvents.push(event),
@@ -1281,6 +1513,161 @@ try {
     'customer request event should publish after commit',
   )
   assert.equal(shipmentRequestedEvents[0]?.shipmentId, createdShipment.data.id)
+
+  const requestEvent = shipmentRequestedEvents[0]!
+  const dispatcherRecord = await databaseModule.pool.query<{ id: string; email: string }>(
+    "SELECT id, email::text AS email FROM users WHERE role = 'DISPATCHER' AND is_active AND email_verified_at IS NOT NULL LIMIT 1",
+  )
+  assert(dispatcherRecord.rows[0], 'notification test needs a verified dispatcher recipient')
+  const notificationEventsModule = await import('../../src/core/events/domain-event-bus.js')
+  notificationEventsModule.domainEventBus.publish('shipment.requested', requestEvent)
+  notificationEventsModule.domainEventBus.publish('shipment.requested', requestEvent)
+  let dispatcherEmailCount = 0
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const result = await databaseModule.pool.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM email_logs WHERE dedupe_key = $1',
+      [
+        `shipment:${requestEvent.shipmentId}:${requestEvent.eventId}:${dispatcherRecord.rows[0].id}`,
+      ],
+    )
+    dispatcherEmailCount = Number(result.rows[0]?.count ?? 0)
+    if (dispatcherEmailCount === 1) break
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  assert.equal(
+    dispatcherEmailCount,
+    1,
+    'replaying the same shipment request event must queue exactly one dispatcher email',
+  )
+
+  const securityShipmentFixtures = await databaseModule.pool.query<{ id: string }>(
+    `INSERT INTO shipments
+      (tracking_code, customer_id, pickup_address, pickup_location, dropoff_address, dropoff_location, weight_kg)
+     VALUES ($1, $2, 'Security pickup 1', ST_SetSRID(ST_MakePoint(3, 6), 4326)::geography,
+             'Security dropoff 1', ST_SetSRID(ST_MakePoint(3.1, 6.1), 4326)::geography, 1),
+            ($3, $2, 'Security pickup 2', ST_SetSRID(ST_MakePoint(3, 6), 4326)::geography,
+             'Security dropoff 2', ST_SetSRID(ST_MakePoint(3.1, 6.1), 4326)::geography, 1),
+            ($4, $2, 'Security pickup 3', ST_SetSRID(ST_MakePoint(3, 6), 4326)::geography,
+             'Security dropoff 3', ST_SetSRID(ST_MakePoint(3.1, 6.1), 4326)::geography, 1)
+     RETURNING id`,
+    [
+      `RC-SEC-${suffix.slice(0, 6)}A`,
+      customerRecord.rows[0]!.id,
+      `RC-SEC-${suffix.slice(0, 6)}B`,
+      `RC-SEC-${suffix.slice(0, 6)}C`,
+    ],
+  )
+  notificationEventsModule.domainEventBus.publish('security.signal', {
+    type: 'customer_shipment_created',
+    userId: customerRecord.rows[0]!.id,
+    occurredAt: new Date().toISOString(),
+    evidence: { integrationReplay: true },
+  })
+  notificationEventsModule.domainEventBus.publish('security.signal', {
+    type: 'customer_shipment_created',
+    userId: customerRecord.rows[0]!.id,
+    occurredAt: new Date().toISOString(),
+    evidence: { integrationReplay: true },
+  })
+  let massRequestEvent:
+    | { type: string; severity: string; evidence: { count: number }; matchingEvents: number }
+    | undefined
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const result = await databaseModule.pool.query<{
+      type: string
+      severity: string
+      evidence: { count: number }
+      matchingEvents: number
+    }>(
+      `SELECT type, severity::text AS severity, evidence, count(*) OVER ()::int AS "matchingEvents"
+       FROM security_events
+       WHERE user_id = $1 AND type = 'MASS_SHIPMENT_REQUESTS' ORDER BY created_at DESC LIMIT 1`,
+      [customerRecord.rows[0]!.id],
+    )
+    massRequestEvent = result.rows[0]
+    if ((massRequestEvent?.evidence.count ?? 0) >= 2) break
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  assert.equal(massRequestEvent?.severity, 'MEDIUM', 'shipment request bursts create medium alerts')
+  assert((massRequestEvent?.evidence.count ?? 0) >= 2, 'repeat request signals aggregate')
+  assert.equal(massRequestEvent?.matchingEvents, 1, 'request signals create one deduplicated event')
+
+  await databaseModule.pool.query(
+    `INSERT INTO shipment_events (shipment_id, actor_id, status, note)
+     SELECT id, $1, 'CANCELLED', 'Integration security burst fixture.'
+     FROM shipments WHERE id = ANY($2::uuid[])`,
+    [customerRecord.rows[0]!.id, securityShipmentFixtures.rows.map((shipment) => shipment.id)],
+  )
+  notificationEventsModule.domainEventBus.publish('security.signal', {
+    type: 'customer_shipment_cancelled',
+    userId: customerRecord.rows[0]!.id,
+    occurredAt: new Date().toISOString(),
+    evidence: { integrationReplay: true },
+  })
+  notificationEventsModule.domainEventBus.publish('security.signal', {
+    type: 'customer_shipment_cancelled',
+    userId: customerRecord.rows[0]!.id,
+    occurredAt: new Date().toISOString(),
+    evidence: { integrationReplay: true },
+  })
+  let massCancellationEvent:
+    | { type: string; severity: string; evidence: { count: number }; matchingEvents: number }
+    | undefined
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const result = await databaseModule.pool.query<{
+      type: string
+      severity: string
+      evidence: { count: number }
+      matchingEvents: number
+    }>(
+      `SELECT type, severity::text AS severity, evidence, count(*) OVER ()::int AS "matchingEvents"
+       FROM security_events
+       WHERE user_id = $1 AND type = 'MASS_SHIPMENT_CANCELLATIONS'
+       ORDER BY created_at DESC LIMIT 1`,
+      [customerRecord.rows[0]!.id],
+    )
+    massCancellationEvent = result.rows[0]
+    if ((massCancellationEvent?.evidence.count ?? 0) >= 2) break
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  assert.equal(
+    massCancellationEvent?.severity,
+    'MEDIUM',
+    'customer cancellation bursts create medium alerts',
+  )
+  assert((massCancellationEvent?.evidence.count ?? 0) >= 2, 'repeat cancellation signals aggregate')
+  assert.equal(
+    massCancellationEvent?.matchingEvents,
+    1,
+    'cancellation signals create one deduplicated event',
+  )
+
+  notificationEventsModule.domainEventBus.publish('security.signal', {
+    type: 'login_location_changed',
+    userId: customerRecord.rows[0]!.id,
+    occurredAt: new Date().toISOString(),
+    evidence: {
+      previousGeolocation: JSON.stringify({ country: 'NG', region: 'LA' }),
+      currentGeolocation: JSON.stringify({ country: 'GB', region: 'ENG' }),
+      previousLoginAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+    },
+  })
+  let impossibleTravelEvent: { type: string; severity: string } | undefined
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const result = await databaseModule.pool.query<{ type: string; severity: string }>(
+      `SELECT type, severity::text AS severity FROM security_events
+       WHERE user_id = $1 AND type = 'IMPOSSIBLE_TRAVEL' ORDER BY created_at DESC LIMIT 1`,
+      [customerRecord.rows[0]!.id],
+    )
+    impossibleTravelEvent = result.rows[0]
+    if (impossibleTravelEvent) break
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  assert.equal(
+    impossibleTravelEvent?.severity,
+    'HIGH',
+    'different country logins in an implausibly short interval create a high event',
+  )
 
   const dispatcherCustomerOptions = await fetch(`${baseUrl}/api/v1/shipments/customers?limit=10`, {
     headers: fleetHeaders(dispatcherToken),
@@ -1332,6 +1719,214 @@ try {
     ).status,
     403,
   )
+
+  const dispatchShipmentResponse = await fetch(`${baseUrl}/api/v1/shipments`, {
+    method: 'POST',
+    headers: { ...fleetHeaders(dispatcherToken), 'content-type': 'application/json' },
+    body: JSON.stringify({
+      customerId: secondCustomer.rows[0]!.id,
+      pickupAddress: 'Dispatch test pickup',
+      pickup: { lat: 6.6, lng: 3.35 },
+      dropoffAddress: 'Dispatch test dropoff',
+      dropoff: { lat: 6.61, lng: 3.36 },
+      weightKg: 10,
+      priority: 'HIGH',
+    }),
+  })
+  assert.equal(dispatchShipmentResponse.status, 201)
+  const dispatchShipment = (await dispatchShipmentResponse.json()) as {
+    data: { id: string; status: string }
+  }
+  const dispatchSuggestionsResponse = await fetch(
+    `${baseUrl}/api/v1/dispatch/suggestions?shipmentId=${dispatchShipment.data.id}`,
+    { headers: fleetHeaders(dispatcherToken) },
+  )
+  assert.equal(dispatchSuggestionsResponse.status, 200)
+  const dispatchSuggestions = (await dispatchSuggestionsResponse.json()) as {
+    data: { driverId: string; distanceM: number; capacityKg: number; lastSeenAt: string }[]
+  }
+  const closestDispatchDriver = dispatchSuggestions.data[0]
+  assert.equal(
+    closestDispatchDriver?.driverId,
+    shipmentDriverId,
+    'the nearest eligible fresh driver should rank first',
+  )
+  assert(
+    Math.abs(closestDispatchDriver.distanceM) < 0.01,
+    'PostGIS suggestion distance should match the hand-computed zero-meter pickup distance',
+  )
+  assert(closestDispatchDriver.capacityKg >= 10, 'suggested vehicle must support shipment weight')
+  assert(Date.now() - Date.parse(closestDispatchDriver.lastSeenAt) < 30_000)
+
+  const assignedRealtime = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      dispatchDriverSocket.off('shipment:updated', onUpdate)
+      reject(new Error('Assigned driver did not receive the dispatch update in realtime.'))
+    }, 5_000)
+    const onUpdate = (event: { shipmentId: string; status?: string }) => {
+      if (event.shipmentId !== dispatchShipment.data.id || event.status !== 'ASSIGNED') return
+      clearTimeout(timer)
+      dispatchDriverSocket.off('shipment:updated', onUpdate)
+      resolve()
+    }
+    dispatchDriverSocket.on('shipment:updated', onUpdate)
+  })
+  const assignmentPayload = JSON.stringify({
+    shipmentId: dispatchShipment.data.id,
+    driverId: shipmentDriverId,
+  })
+  const competingAssignments = await Promise.all(
+    Array.from({ length: 2 }, () =>
+      fetch(`${baseUrl}/api/v1/dispatch/assign`, {
+        method: 'POST',
+        headers: { ...fleetHeaders(dispatcherToken), 'content-type': 'application/json' },
+        body: assignmentPayload,
+      }),
+    ),
+  )
+  assert.deepEqual(
+    competingAssignments.map((response) => response.status).sort(),
+    [200, 409],
+    'concurrent dispatchers must produce one assignment and one state conflict',
+  )
+  await assignedRealtime
+  const acceptedDispatch = await fetch(
+    `${baseUrl}/api/v1/shipments/${dispatchShipment.data.id}/accept`,
+    {
+      method: 'POST',
+      headers: { ...fleetHeaders(shipmentDriverToken), 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    },
+  )
+  assert.equal(acceptedDispatch.status, 200, 'assigned driver can accept the job')
+  const declinedDispatch = await fetch(
+    `${baseUrl}/api/v1/shipments/${dispatchShipment.data.id}/reject`,
+    {
+      method: 'POST',
+      headers: { ...fleetHeaders(shipmentDriverToken), 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'Driver integration test decline.' }),
+    },
+  )
+  assert.equal(declinedDispatch.status, 200, 'assigned driver can decline and return the job')
+  const returnedDispatch = await databaseModule.pool.query<{
+    status: string
+    driver_id: string | null
+  }>('SELECT status::text, driver_id FROM shipments WHERE id = $1', [dispatchShipment.data.id])
+  assert.equal(returnedDispatch.rows[0]?.status, 'CREATED')
+  assert.equal(returnedDispatch.rows[0]?.driver_id, null)
+
+  const timeoutAssignment = await fetch(`${baseUrl}/api/v1/dispatch/assign`, {
+    method: 'POST',
+    headers: { ...fleetHeaders(dispatcherToken), 'content-type': 'application/json' },
+    body: assignmentPayload,
+  })
+  assert.equal(timeoutAssignment.status, 200)
+  await databaseModule.pool.query(
+    `UPDATE shipment_events SET created_at = now() - interval '60 seconds'
+     WHERE shipment_id = $1`,
+    [dispatchShipment.data.id],
+  )
+  await databaseModule.pool.query(
+    `UPDATE shipment_events SET created_at = now() - interval '31 seconds'
+     WHERE id = (
+       SELECT id FROM shipment_events
+       WHERE shipment_id = $1 AND status = 'ASSIGNED'
+       ORDER BY created_at DESC, id DESC LIMIT 1
+     )`,
+    [dispatchShipment.data.id],
+  )
+  const shipmentService = await import('../../src/modules/shipments/service.js')
+  assert.equal(await shipmentService.requeueTimedOutAssignments(dispatchShipment.data.id), 1)
+  const timedOutDispatch = await databaseModule.pool.query<{
+    status: string
+    driver_id: string | null
+    driver_status: string
+  }>(
+    `SELECT s.status::text, s.driver_id, d.status::text AS driver_status
+     FROM shipments s JOIN drivers d ON d.id = $2 WHERE s.id = $1`,
+    [dispatchShipment.data.id, shipmentDriverId],
+  )
+  assert.equal(timedOutDispatch.rows[0]?.status, 'CREATED')
+  assert.equal(timedOutDispatch.rows[0]?.driver_id, null)
+  assert.equal(timedOutDispatch.rows[0]?.driver_status, 'AVAILABLE')
+
+  const batchVehicle = await databaseModule.pool.query<{ id: string }>(
+    `INSERT INTO vehicles (plate, type, capacity_kg)
+     VALUES ($1, 'VAN', 350) RETURNING id`,
+    [`BAT-${suffix.slice(0, 8)}`],
+  )
+  await databaseModule.pool.query(
+    `UPDATE drivers SET status = 'AVAILABLE', vehicle_id = $2,
+       last_known_location = ST_SetSRID(ST_MakePoint(3.4, 6.45), 4326)::geography,
+       last_seen_at = now() WHERE id = $1`,
+    [secondDriverProfile.rows[0]!.id, batchVehicle.rows[0]!.id],
+  )
+  await databaseModule.pool.query(
+    `INSERT INTO telemetry_points (driver_id, location, accuracy_m, recorded_at, source)
+     VALUES ($1, ST_SetSRID(ST_MakePoint(3.4, 6.45), 4326)::geography, 5, now(), 'SIMULATOR')`,
+    [secondDriverProfile.rows[0]!.id],
+  )
+  await databaseModule.pool.query(
+    `UPDATE alerts SET status = 'RESOLVED', resolved_at = now()
+     WHERE driver_id = $1 AND type = 'SIGNAL_LOST' AND status <> 'RESOLVED'`,
+    [secondDriverProfile.rows[0]!.id],
+  )
+  const batchShipmentInputs = [
+    { pickupAddress: 'Nearest batch pickup', pickup: { lat: 6.45, lng: 3.4 } },
+    { pickupAddress: 'Next batch pickup', pickup: { lat: 6.451, lng: 3.4 } },
+  ]
+  const batchShipmentIds: string[] = []
+  for (const [index, pickup] of batchShipmentInputs.entries()) {
+    const created = await fetch(`${baseUrl}/api/v1/shipments`, {
+      method: 'POST',
+      headers: { ...fleetHeaders(dispatcherToken), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        customerId: secondCustomer.rows[0]!.id,
+        pickupAddress: pickup.pickupAddress,
+        pickup: pickup.pickup,
+        dropoffAddress: `Batch dropoff ${index + 1}`,
+        dropoff: { lat: 6.46, lng: 3.41 },
+        weightKg: 25,
+      }),
+    })
+    assert.equal(created.status, 201)
+    const createdBody = (await created.json()) as { data: { id: string } }
+    batchShipmentIds.push(createdBody.data.id)
+  }
+  const batchAssignment = await fetch(`${baseUrl}/api/v1/dispatch/assign-batch`, {
+    method: 'POST',
+    headers: { ...fleetHeaders(dispatcherToken), 'content-type': 'application/json' },
+    body: JSON.stringify({
+      shipmentIds: [...batchShipmentIds].reverse(),
+      driverId: secondDriverProfile.rows[0]!.id,
+    }),
+  })
+  assert.equal(batchAssignment.status, 200, 'qualified drivers can receive a shipment batch')
+  const batchAssignmentBody = (await batchAssignment.json()) as {
+    data: {
+      totalWeightKg: number
+      stops: { sequence: number; distanceFromPreviousM: number; shipment: { id: string } }[]
+    }
+  }
+  assert.equal(batchAssignmentBody.data.totalWeightKg, 50)
+  assert.deepEqual(
+    batchAssignmentBody.data.stops.map((stop) => stop.shipment.id),
+    batchShipmentIds,
+    'batch stops should follow nearest-neighbor pickup order, independent of request order',
+  )
+  assert.deepEqual(
+    batchAssignmentBody.data.stops.map((stop) => stop.sequence),
+    [1, 2],
+  )
+  assert.equal(batchAssignmentBody.data.stops[0]?.distanceFromPreviousM, 0)
+  for (const shipmentId of batchShipmentIds) {
+    const canceledBatchStop = await fetch(`${baseUrl}/api/v1/shipments/${shipmentId}/cancel`, {
+      method: 'POST',
+      headers: { ...fleetHeaders(dispatcherToken), 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'Integration batch test cleanup.' }),
+    })
+    assert.equal(canceledBatchStop.status, 200, 'batch test shipment can be safely canceled')
+  }
 
   const rejectedIllegalTransition = await fetch(
     `${baseUrl}/api/v1/shipments/${createdShipment.data.id}/transition`,
@@ -1719,6 +2314,29 @@ try {
       `${account.role} logout-all must revoke access immediately`,
     )
   }
+  const verifiedPasswordRecipients = await databaseModule.pool.query<{ email: string }>(
+    `SELECT email::text AS email FROM users
+     WHERE email = ANY($1::citext[]) AND is_active AND email_verified_at IS NOT NULL`,
+    [roleAccounts.map((account) => account.email)],
+  )
+  let passwordNoticeCount = 0
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const result = await databaseModule.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM email_logs
+       WHERE template = 'security_password_changed' AND status = 'SENT'
+         AND recipient_email = ANY($1::citext[])
+         AND recipient_email IN (SELECT email FROM users WHERE is_active AND email_verified_at IS NOT NULL)`,
+      [roleAccounts.map((account) => account.email)],
+    )
+    passwordNoticeCount = Number(result.rows[0]?.count ?? 0)
+    if (passwordNoticeCount === verifiedPasswordRecipients.rowCount) break
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  assert.equal(
+    passwordNoticeCount,
+    verifiedPasswordRecipients.rowCount,
+    'every password change for an active verified account must send a mandatory account email',
+  )
   const adminAfterSelfService = await loginAs(
     `admin-${suffix}@routecommand.test`,
     'admin-phase4-integration-password-changed',
@@ -1752,7 +2370,7 @@ try {
     databaseUrl: process.env.DATABASE_URL,
     dir: fileURLToPath(new URL('../../db/migrations/', import.meta.url)),
     direction: 'down',
-    count: 3,
+    count: 4,
     migrationsTable: 'pgmigrations',
     migrationLoaderStrategies: [{ extensions: ['.sql'], loader: 'sql' }],
   })
@@ -1787,7 +2405,7 @@ try {
     databaseUrl: process.env.DATABASE_URL,
     dir: fileURLToPath(new URL('../../db/migrations/', import.meta.url)),
     direction: 'up',
-    count: 3,
+    count: 4,
     migrationsTable: 'pgmigrations',
     migrationLoaderStrategies: [{ extensions: ['.sql'], loader: 'sql' }],
   })
@@ -1815,6 +2433,10 @@ try {
     'migration 006 restores an alerts table missing from an already-migrated database',
   )
 
+  await databaseModule.pool.query(
+    'UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()) WHERE email = $1',
+    [credentials.email],
+  )
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const failedLogin = await fetch(`${baseUrl}/api/v1/auth/login`, {
       method: 'POST',
@@ -1829,11 +2451,45 @@ try {
     body: JSON.stringify({ ...credentials, password: 'phase-four-test-password-changed' }),
   })
   assert.equal(blockedLogin.status, 401, 'repeated failed attempts must lock out login attempts')
+  let accountLockedNoticeCount = 0
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const result = await databaseModule.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM email_logs
+       WHERE template = 'security_account_locked' AND status = 'SENT'
+         AND recipient_email = $1`,
+      [credentials.email],
+    )
+    accountLockedNoticeCount = Number(result.rows[0]?.count ?? 0)
+    if (accountLockedNoticeCount > 0) break
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  assert.equal(accountLockedNoticeCount, 1, 'account lockout must send one mandatory user email')
+  let bruteForceAdminEmailCount = 0
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const result = await databaseModule.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM email_logs log
+       JOIN notification_events notification ON notification.id = log.notification_event_id
+       JOIN security_events event ON event.id = notification.entity_id
+       WHERE log.template = 'security_admin_alert' AND event.type = 'BRUTE_FORCE_LOGIN'`,
+    )
+    bruteForceAdminEmailCount = Number(result.rows[0]?.count ?? 0)
+    if (bruteForceAdminEmailCount > 0) break
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  assert(
+    bruteForceAdminEmailCount > 0,
+    'a high-severity brute-force event must queue an administrator security email',
+  )
   console.info(
-    'Phase 4–9 integration checks passed: auth sessions/email, fleet and shipment rules, PostGIS drivers/zones, 10k telemetry ingestion and dedupe, telemetry history/metrics, socket auth/rooms/refresh, coalesced live positions, reconnect snapshots, and migrations 004–006 rollback/reapplication including alert-table repair.',
+    'Phase 4–11A integration checks passed: auth sessions/email, shipment notification dedupe, mandatory password-change and account-lock emails, request/cancellation-burst and impossible-travel security events, brute-force admin email, fleet and shipment rules, dispatch ranking/races/batch ordering, driver realtime accept/decline, assignment timeout requeue, PostGIS drivers/zones, debounced geofences, alert lifecycle/audit, 10k telemetry ingestion/dedupe, telemetry history/metrics, socket auth/rooms/refresh, reconnect snapshots, and migrations 004–007 rollback/reapplication.',
   )
 } finally {
   for (const socket of realtimeSockets) socket.disconnect()
+  stopNotificationHandlers?.()
+  stopSecuritySignalWorker?.()
+  stopSecurityEmailHandler?.()
+  stopGeofenceWorker?.()
   await stopRealtimeGateway?.()
   if (server?.listening) await new Promise<void>((resolve) => server?.close(() => resolve()))
   await stopTelemetryWorker?.()

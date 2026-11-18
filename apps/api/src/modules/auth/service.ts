@@ -8,6 +8,7 @@ import {
   createCustomer,
   findRefreshTokenForUpdate,
   findLatestDeviceFingerprint,
+  findLatestLoginLocation,
   findPublicUserById,
   isSessionActive,
   findUserByEmail,
@@ -394,6 +395,8 @@ export async function login(input: LoginInput, context: AuthRequestContext): Pro
 
   await clearLoginFailures(email, context.ip)
   const previousFingerprint = await findLatestDeviceFingerprint(user.id)
+  const previousLoginLocation = await findLatestLoginLocation(user.id)
+  const currentLoginLocation = await approximateIpGeolocation(context.ip)
   const session = await issueSession(publicUser(user), context)
   await withTransaction(async (executor, afterCommit) => {
     await executor.query(
@@ -403,6 +406,13 @@ export async function login(input: LoginInput, context: AuthRequestContext): Pro
     await recordAudit(executor, 'auth.login.succeeded', user.id, context, user.id)
     if (previousFingerprint && previousFingerprint !== fingerprint(context)) {
       emitSecuritySignal(afterCommit, 'new_device_login', user, user.email, context)
+    }
+    if (previousLoginLocation && currentLoginLocation) {
+      emitSecuritySignal(afterCommit, 'login_location_changed', user, user.email, context, {
+        previousGeolocation: previousLoginLocation.ipGeolocation,
+        previousLoginAt: previousLoginLocation.createdAt.toISOString(),
+        currentGeolocation: currentLoginLocation,
+      })
     }
   })
   logger.info({ userId: user.id, role: user.role }, 'Authentication succeeded')

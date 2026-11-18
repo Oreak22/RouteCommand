@@ -209,3 +209,18 @@ export async function findLatestDeviceFingerprint(userId: string): Promise<strin
   )
   return result.rows[0]?.device_fingerprint_hash ?? null
 }
+
+export async function findLatestLoginLocation(userId: string): Promise<{
+  ipGeolocation: string
+  createdAt: Date
+} | null> {
+  const result = await query<{ ip_geolocation: string | null; created_at: Date }>(
+    `SELECT ip_geolocation, created_at FROM refresh_tokens
+     WHERE user_id = $1 AND ip_geolocation IS NOT NULL
+     ORDER BY created_at DESC LIMIT 1`,
+    [userId],
+  )
+  const row = result.rows[0]
+  if (!row?.ip_geolocation) return null
+  return { ipGeolocation: row.ip_geolocation, createdAt: row.created_at }
+}

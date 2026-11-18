@@ -2,6 +2,8 @@ import { OpenAPIRegistry, OpenApiGeneratorV31 } from '@asteasolutions/zod-to-ope
 import { extendZodWithOpenApi } from '@asteasolutions/zod-to-openapi'
 import {
   actionTokenSchema,
+  alertActionSchema,
+  alertIdParamsSchema,
   assignVehicleSchema,
   changePasswordSchema,
   checkZonePointSchema,
@@ -14,10 +16,15 @@ import {
   driverStatusUpdateSchema,
   emailActionSchema,
   listDriversQuerySchema,
+  listAlertsQuerySchema,
   listManagedUsersQuerySchema,
   listVehiclesQuerySchema,
   listZonesQuerySchema,
   listShipmentsQuerySchema,
+  updateNotificationPreferencesSchema,
+  dispatchAssignSchema,
+  dispatchBatchAssignSchema,
+  dispatchSuggestionsQuerySchema,
   loginSchema,
   managedUserIdParamsSchema,
   nearbyDriversQuerySchema,
@@ -35,12 +42,21 @@ import {
   zoneIdParamsSchema,
   zoneUpdateGuardSchema,
   transitionShipmentSchema,
+  shipmentAcceptSchema,
+  shipmentRejectSchema,
   telemetryBatchSchema,
   telemetryDriverIdParamsSchema,
   telemetryPointsQuerySchema,
   telemetryTrackQuerySchema,
 } from '@routecommand/shared'
 import { z } from 'zod'
+
+import { emailIdParamsSchema, suppressionParamsSchema } from '../modules/admin-email/schemas.js'
+import {
+  securityEventListSchema,
+  securityEventParamsSchema,
+  securityEventStatusSchema,
+} from '../modules/security/admin-schemas.js'
 
 extendZodWithOpenApi(z)
 const registry = new OpenAPIRegistry()
@@ -176,6 +192,61 @@ for (const [method, path, summary, request] of [
       403: { description: 'Role or ownership check denied the operation.' },
       404: { description: 'Shipment not found.' },
       409: { description: 'The requested transition conflicts with shipment state.' },
+      422: { description: 'Input validation failed.' },
+    },
+  })
+}
+
+for (const [method, path, summary, request] of [
+  [
+    'get',
+    '/api/v1/dispatch/suggestions',
+    'Rank fresh, available drivers by distance, capacity, workload and zone match.',
+    { query: dispatchSuggestionsQuerySchema },
+  ],
+  [
+    'post',
+    '/api/v1/dispatch/assign',
+    'Assign a driver to an unassigned shipment in one transaction.',
+    { body: { content: { 'application/json': { schema: dispatchAssignSchema } } } },
+  ],
+  [
+    'post',
+    '/api/v1/dispatch/assign-batch',
+    'Assign several unassigned shipments to one capable driver in nearest-pickup order.',
+    { body: { content: { 'application/json': { schema: dispatchBatchAssignSchema } } } },
+  ],
+  [
+    'post',
+    '/api/v1/shipments/{shipmentId}/accept',
+    'Accept an assignment as its assigned driver.',
+    {
+      params: shipmentIdParamsSchema,
+      body: { content: { 'application/json': { schema: shipmentAcceptSchema } } },
+    },
+  ],
+  [
+    'post',
+    '/api/v1/shipments/{shipmentId}/reject',
+    'Decline an assignment and return it to the unassigned dispatch queue.',
+    {
+      params: shipmentIdParamsSchema,
+      body: { content: { 'application/json': { schema: shipmentRejectSchema } } },
+    },
+  ],
+] as const) {
+  registry.registerPath({
+    method,
+    path,
+    summary,
+    security: [{ bearerAuth: [] }],
+    request,
+    responses: {
+      200: { description: 'Dispatch operation completed.' },
+      401: { description: 'Authentication required.' },
+      403: { description: 'Role or ownership check denied the operation.' },
+      404: { description: 'Shipment or driver not found.' },
+      409: { description: 'Shipment or driver state changed before the operation completed.' },
       422: { description: 'Input validation failed.' },
     },
   })
@@ -438,6 +509,117 @@ registry.registerPath({
 const authenticated = [{ bearerAuth: [] }]
 registry.registerPath({
   method: 'get',
+  path: '/api/v1/admin/email-log',
+  summary: 'List email delivery logs. Administrator only.',
+  description: 'Filters by delivery status, template, and recipient; pagination is supported.',
+  security: authenticated,
+  responses: {
+    200: { description: 'Email delivery log page.' },
+    401: { description: 'Authentication required.' },
+    403: { description: 'Administrator role required.' },
+  },
+})
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/notifications/preferences',
+  summary: 'Get notification email preferences for the authenticated user.',
+  security: authenticated,
+  responses: {
+    200: { description: 'Role-specific email preferences and mandatory account/security notices.' },
+    401: { description: 'Authentication required.' },
+  },
+})
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/admin/security-events',
+  summary: 'List security events. Administrator only.',
+  security: authenticated,
+  request: { query: securityEventListSchema },
+  responses: {
+    200: { description: 'Filtered security event list.' },
+    401: { description: 'Authentication required.' },
+    403: { description: 'Administrator role required.' },
+  },
+})
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/admin/security-events/{eventId}',
+  summary: 'Get security event evidence. Administrator only.',
+  security: authenticated,
+  request: { params: securityEventParamsSchema },
+  responses: {
+    200: { description: 'Security event details.' },
+    404: { description: 'Security event not found.' },
+  },
+})
+registry.registerPath({
+  method: 'patch',
+  path: '/api/v1/admin/security-events/{eventId}',
+  summary: 'Review or dismiss an open security event. Administrator only.',
+  security: authenticated,
+  request: {
+    params: securityEventParamsSchema,
+    body: { content: { 'application/json': { schema: securityEventStatusSchema } } },
+  },
+  responses: {
+    200: { description: 'Security event updated.' },
+    409: { description: 'Security event is no longer open.' },
+  },
+})
+registry.registerPath({
+  method: 'put',
+  path: '/api/v1/notifications/preferences',
+  summary: 'Update non-critical notification email preferences.',
+  description: 'Account and security emails are mandatory and cannot be disabled.',
+  security: authenticated,
+  request: {
+    body: { content: { 'application/json': { schema: updateNotificationPreferencesSchema } } },
+  },
+  responses: {
+    200: { description: 'Updated role-specific email preferences.' },
+    401: { description: 'Authentication required.' },
+    422: { description: 'Preference values are invalid.' },
+  },
+})
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/admin/email-log/{emailId}/retry',
+  summary: 'Retry a retained failed email job. Administrator only.',
+  security: authenticated,
+  request: { params: emailIdParamsSchema },
+  responses: {
+    202: { description: 'Retry queued.' },
+    401: { description: 'Authentication required.' },
+    403: { description: 'Administrator role required.' },
+    409: { description: 'Email is not eligible or its queue job is no longer retained.' },
+  },
+})
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/admin/email-suppressions',
+  summary: 'List suppressed email addresses. Administrator only.',
+  security: authenticated,
+  responses: {
+    200: { description: 'Email suppression entries.' },
+    401: { description: 'Authentication required.' },
+    403: { description: 'Administrator role required.' },
+  },
+})
+registry.registerPath({
+  method: 'delete',
+  path: '/api/v1/admin/email-suppressions/{email}',
+  summary: 'Clear an email address suppression. Administrator only.',
+  security: authenticated,
+  request: { params: suppressionParamsSchema },
+  responses: {
+    204: { description: 'Suppression cleared.' },
+    401: { description: 'Authentication required.' },
+    403: { description: 'Administrator role required.' },
+    404: { description: 'Suppression was not found.' },
+  },
+})
+registry.registerPath({
+  method: 'get',
   path: '/api/v1/drivers',
   summary: 'List drivers with operational filters. Administrator or dispatcher.',
   security: authenticated,
@@ -623,6 +805,26 @@ registry.registerPath({
 })
 
 for (const [method, path, summary, request] of [
+  ['get', '/api/v1/alerts', 'List operational alerts.', { query: listAlertsQuerySchema }],
+  ['get', '/api/v1/alerts/stats', 'Summarize alert counts by status and severity.', {}],
+  [
+    'post',
+    '/api/v1/alerts/{alertId}/acknowledge',
+    'Acknowledge an open operational alert.',
+    {
+      params: alertIdParamsSchema,
+      body: { content: { 'application/json': { schema: alertActionSchema } } },
+    },
+  ],
+  [
+    'post',
+    '/api/v1/alerts/{alertId}/resolve',
+    'Resolve an operational alert.',
+    {
+      params: alertIdParamsSchema,
+      body: { content: { 'application/json': { schema: alertActionSchema } } },
+    },
+  ],
   ['get', '/api/v1/zones', 'List delivery and operational zones.', { query: listZonesQuerySchema }],
   [
     'post',

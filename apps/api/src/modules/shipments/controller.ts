@@ -108,3 +108,25 @@ export const cancel: RequestHandler = async (request, response) => {
     ),
   })
 }
+
+export const accept: RequestHandler = async (request, response) => {
+  response.status(200).json({
+    data: await transitionShipmentRecord(
+      shipmentId(request),
+      { toStatus: 'ACCEPTED' },
+      actor(request),
+      context(request),
+    ),
+  })
+}
+
+export const reject: RequestHandler = async (request, response) => {
+  response.status(200).json({
+    data: await transitionShipmentRecord(
+      shipmentId(request),
+      { toStatus: 'CREATED', note: `Driver declined assignment: ${request.body.reason}` },
+      actor(request),
+      context(request),
+    ),
+  })
+}

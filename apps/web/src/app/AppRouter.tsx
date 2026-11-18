@@ -55,6 +55,31 @@ const PublicTrackingPage = lazy(() =>
 const StyleguidePage = lazy(() =>
   import('../pages/StyleguidePage').then((module) => ({ default: module.StyleguidePage })),
 )
+const AlertsPage = lazy(() =>
+  import('../features/alerts/components/AlertsPage').then((module) => ({
+    default: module.AlertsPage,
+  })),
+)
+const AdminEmailPage = lazy(() =>
+  import('../features/admin-email/components/AdminEmailPage').then((module) => ({
+    default: module.AdminEmailPage,
+  })),
+)
+const NotificationPreferencesPage = lazy(() =>
+  import('../features/notifications/components/NotificationPreferencesPage').then((module) => ({
+    default: module.NotificationPreferencesPage,
+  })),
+)
+const SecurityEventsPage = lazy(() =>
+  import('../features/security/components/SecurityEventsPage').then((module) => ({
+    default: module.SecurityEventsPage,
+  })),
+)
+const DispatchBoard = lazy(() =>
+  import('../features/shipments/components/DispatchBoard').then((module) => ({
+    default: module.DispatchBoard,
+  })),
+)
 
 function RouteFallback() {
   return (
@@ -95,6 +120,24 @@ export function AppRouter() {
           }
         >
           <Route path="/app/dashboard" element={<DashboardPage />} />
+          <Route path="/app/alerts" element={<AlertsPage />} />
+          <Route
+            path="/app/admin/email"
+            element={
+              <RequireRole roles={['ADMIN']}>
+                <AdminEmailPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/app/admin/security"
+            element={
+              <RequireRole roles={['ADMIN']}>
+                <SecurityEventsPage />
+              </RequireRole>
+            }
+          />
+          <Route path="/app/dispatch" element={<DispatchBoard />} />
           <Route path="/app/drivers" element={<DriversPage />} />
           <Route path="/app/vehicles" element={<VehiclesPage />} />
           {import.meta.env.DEV && <Route path="/__styleguide" element={<StyleguidePage />} />}
@@ -107,6 +150,7 @@ export function AppRouter() {
           }
         >
           <Route path="/app/shipments" element={<ShipmentsPage />} />
+          <Route path="/account/notifications" element={<NotificationPreferencesPage />} />
         </Route>
         <Route
           element={
