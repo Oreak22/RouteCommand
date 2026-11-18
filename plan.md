@@ -801,7 +801,7 @@ Rules of the road:
 
 **Edge cases:** thousands of markers (benchmark and document the limit); two markers at identical coordinates (spiderfy); marker memory leaks on unmount (cleanup tested); out-of-order or stale messages (sequence guard); dateline/zoom limits; high-DPI tiles.
 
-**DoD:** 200 live drivers at 1 Hz updates stays ≥ 50 fps on a mid-range laptop (documented measurement); selecting/following/filtering work with no console errors; React Profiler shows no per-message re-render of the whole map tree.
+**DoD:** 200 live drivers at 1 Hz updates stays ≥ 55 fps on a mid-range laptop (documented measurement); selecting/following/filtering work with no console errors; React Profiler shows no per-message re-render of the whole map tree.
 
 ---
 
