@@ -1,4 +1,4 @@
-import { ArrowRight, PackageCheck } from 'lucide-react'
+import { ArrowRight, Navigation, PackageCheck } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
@@ -60,19 +60,27 @@ export function DriverJobsOverview() {
         <ul className="space-y-2">
           {jobs.map((job) => (
             <li key={job.id}>
-              <Link
-                className="flex min-w-0 flex-col gap-2 rounded-box border border-base-content/10 p-3 transition-colors hover:bg-base-200 sm:flex-row sm:items-center sm:justify-between"
-                to="/driver/shipments"
-                state={{ selectedShipmentId: job.id }}
-              >
-                <div className="min-w-0">
+              <div className="flex min-w-0 flex-col gap-3 rounded-box border border-base-content/10 p-3 transition-colors hover:bg-base-200 sm:flex-row sm:items-center sm:justify-between">
+                <Link
+                  className="min-w-0 flex-1"
+                  to="/driver/shipments"
+                  state={{ selectedShipmentId: job.id }}
+                >
                   <p className="font-data text-sm font-semibold">{job.trackingCode}</p>
                   <p className="mt-1 truncate text-xs text-base-content/60">
                     {job.pickupAddress} → {job.dropoffAddress}
                   </p>
+                </Link>
+                <div className="flex items-center justify-between gap-2">
+                  <StatusPill category="shipment" status={job.status} />
+                  <Link
+                    className="btn btn-primary btn-sm min-h-10"
+                    to={`/driver/navigation?shipmentId=${encodeURIComponent(job.id)}`}
+                  >
+                    <Navigation className="size-4" aria-hidden="true" /> Navigate
+                  </Link>
                 </div>
-                <StatusPill category="shipment" status={job.status} />
-              </Link>
+              </div>
             </li>
           ))}
         </ul>

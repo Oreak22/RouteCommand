@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode, RefObject } from 'react'
-import { useMap } from 'react-leaflet'
+import { Polyline, useMap } from 'react-leaflet'
 import { Link } from 'react-router-dom'
 
 import { Button } from '../components/ui/Button'
@@ -30,11 +30,14 @@ import { DriversLayer } from '../features/map/DriversLayer'
 import { MapCanvas } from '../features/map/MapCanvas'
 import { ShipmentsLayer } from '../features/map/ShipmentsLayer'
 import { ZonesLayer } from '../features/map/ZonesLayer'
+import { navigationApi } from '../features/navigation/api/client'
+import type { NavigationSession } from '../features/navigation/api/client'
 import { RealtimeConnectionBanner } from '../features/realtime/RealtimeConnectionBanner'
 import {
   useLivePosition,
   useLivePositionStore,
 } from '../features/realtime/store/live-position-store'
+import { useSocketEvent } from '../features/realtime/useRealtime'
 import { useRealtime } from '../features/realtime/useRealtime'
 import type { Shipment } from '../features/shipments/api/client'
 import { useShipments } from '../features/shipments/api/hooks'
@@ -228,6 +231,22 @@ function ShipmentRow({
   )
 }
 
+function ActiveNavigationRoute({ route }: { route: NavigationSession | null }) {
+  if (!route) return null
+  const positions = route.route.geometry.coordinates.map(([lng, lat]) => [lat, lng] as const)
+  return (
+    <Polyline
+      positions={positions}
+      pathOptions={{
+        color: route.status === 'OFF_ROUTE' ? '#d97706' : '#0e8c90',
+        weight: 6,
+        opacity: 0.9,
+        dashArray: '12 7',
+      }}
+    />
+  )
+}
+
 export function MapPage() {
   const { status: realtimeStatus } = useRealtime()
   const requestedBenchmark = Number(new URLSearchParams(window.location.search).get('benchmark'))
@@ -254,6 +273,7 @@ export function MapPage() {
   const [tileRetry, setTileRetry] = useState(0)
   const [followSelected, setFollowSelected] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [activeNavigations, setActiveNavigations] = useState<Record<string, NavigationSession>>({})
   const mapRef = useRef<LeafletMap | null>(null)
   const cursorRef = useRef<Coordinate | null>(null)
   const cursorTextRef = useRef<HTMLSpanElement | null>(null)
@@ -277,6 +297,89 @@ export function MapPage() {
   const selectedDriver = drivers.find((driver) => driver.id === selectedDriverId) ?? null
   const selectedShipment = shipments.find((shipment) => shipment.id === selectedShipmentId) ?? null
   const live = benchmarkCount > 0 || realtimeStatus === 'connected'
+
+  useEffect(() => {
+    let active = true
+    void navigationApi
+      .activeAll()
+      .then((sessions) => {
+        if (active)
+          setActiveNavigations(
+            Object.fromEntries(sessions.map((session) => [session.driverId, session])),
+          )
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const activeNavigation = selectedDriverId ? (activeNavigations[selectedDriverId] ?? null) : null
+
+  useSocketEvent('navigation:route', (event) => {
+    setActiveNavigations((previous) => ({
+      ...previous,
+      [event.driverId]: {
+        id: event.sessionId,
+        driverId: event.driverId,
+        shipmentId: event.shipmentId,
+        status: event.status,
+        route: event.route,
+        waypoints: [],
+        targetType: event.targetType,
+        distanceM: event.distanceM,
+        durationS: event.durationS,
+        currentStepIndex: 0,
+        rerouteCount: previous[event.driverId]?.rerouteCount ?? 0,
+        startedAt: previous[event.driverId]?.startedAt ?? null,
+        updatedAt: new Date().toISOString(),
+      },
+    }))
+  })
+  useSocketEvent('navigation:rerouted', (event) => {
+    setActiveNavigations((previous) => {
+      const session = previous[event.driverId]
+      return session?.id === event.sessionId
+        ? {
+            ...previous,
+            [event.driverId]: {
+              ...session,
+              route: event.route,
+              targetType: event.targetType,
+              status: event.status,
+              distanceM: event.distanceM,
+              durationS: event.durationS,
+              rerouteCount: session.rerouteCount + 1,
+            },
+          }
+        : previous
+    })
+  })
+  useSocketEvent('navigation:progress', (event) => {
+    setActiveNavigations((previous) => {
+      const session = previous[event.driverId]
+      return session?.id === event.sessionId
+        ? {
+            ...previous,
+            [event.driverId]: {
+              ...session,
+              status: event.status === 'OFF_ROUTE' ? 'OFF_ROUTE' : session.status,
+              currentStepIndex: event.stepIndex,
+              distanceM: event.remainingDistanceM,
+              durationS: event.etaSeconds,
+            },
+          }
+        : previous
+    })
+  })
+  useSocketEvent('navigation:ended', (event) => {
+    setActiveNavigations((previous) => {
+      if (previous[event.driverId]?.id !== event.sessionId) return previous
+      const next = { ...previous }
+      delete next[event.driverId]
+      return next
+    })
+  })
 
   useEffect(() => {
     if (!benchmarkCount) return
@@ -520,6 +623,7 @@ export function MapPage() {
           onSelect={selectShipment}
           selectedDriverId={selectedShipment?.driverId ?? null}
         />
+        <ActiveNavigationRoute route={activeNavigation} />
         {zonesVisible && <ZonesLayer features={zoneFeatures} hiddenIds={new Set()} />}
       </MapCanvas>
 
@@ -541,6 +645,26 @@ export function MapPage() {
           )}
         </div>
       </div>
+      {activeNavigation && (
+        <div className="pointer-events-none absolute left-1/2 top-[4.25rem] z-[500] w-[min(25rem,calc(100vw-1.5rem))] -translate-x-1/2 px-2 sm:top-[4.5rem]">
+          <div
+            className={`rounded-box border bg-base-100/95 px-3 py-2 shadow-lg backdrop-blur ${activeNavigation.status === 'OFF_ROUTE' ? 'border-warning' : 'border-primary/40'}`}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+              Live driver navigation{activeNavigation.status === 'OFF_ROUTE' ? ' · off route' : ''}
+            </p>
+            <p className="mt-1 truncate text-xs">
+              {activeNavigation.route.legs[0]?.steps[activeNavigation.currentStepIndex]
+                ?.instruction ?? 'Route active'}{' '}
+              · {Math.round(activeNavigation.distanceM / 100) / 10} km remaining ·{' '}
+              {Math.ceil(activeNavigation.durationS / 60)} min
+            </p>
+            <p className="mt-1 text-[10px] text-base-content/50">
+              © OpenStreetMap contributors · ODbL
+            </p>
+          </div>
+        </div>
+      )}
       <div className="absolute right-3 top-[4.5rem] z-[500] sm:right-5">
         <RealtimeConnectionBanner />
       </div>

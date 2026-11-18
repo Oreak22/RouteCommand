@@ -1,9 +1,12 @@
 import type { ShipmentStatus, TelemetryPointInput } from '@routecommand/shared'
+import type { NavigationState } from '@routecommand/shared'
+import type { NavigationSession } from '../navigation/api/client.js'
 
 const databaseName = 'routecommand-driver-offline'
-const databaseVersion = 3
+const databaseVersion = 4
 const pointStoreName = 'telemetry-points'
 const actionStoreName = 'shipment-actions'
+const navigationStoreName = 'navigation-sessions'
 const pointLimit = 10_000
 export const offlineQueueChangedEvent = 'routecommand:driver-offline-queue-changed'
 const backgroundSyncTag = 'routecommand-offline-sync'
@@ -77,6 +80,10 @@ function openDatabase(): Promise<IDBDatabase> {
           store.createIndex('idempotencyKey', 'idempotencyKey', { unique: true })
         }
       }
+      if (!database.objectStoreNames.contains(navigationStoreName)) {
+        const store = database.createObjectStore(navigationStoreName, { keyPath: 'actorUserId' })
+        store.createIndex('updatedAt', 'updatedAt')
+      }
     }
     request.onsuccess = () => {
       request.result.onversionchange = () => request.result.close()
@@ -85,6 +92,63 @@ function openDatabase(): Promise<IDBDatabase> {
     request.onerror = () => reject(request.error ?? new Error('Could not open offline storage.'))
     request.onblocked = () => reject(new Error('Offline storage is busy in another tab.'))
   })
+}
+
+interface CachedNavigationSession {
+  actorUserId: string
+  session: NavigationSession
+  state?: NavigationState | null
+  updatedAt: string
+}
+
+export async function cacheNavigationSession(
+  session: NavigationSession,
+  actorUserId: string,
+  state?: NavigationState | null,
+): Promise<void> {
+  const database = await openDatabase()
+  try {
+    const transaction = database.transaction(navigationStoreName, 'readwrite')
+    transaction.objectStore(navigationStoreName).put({
+      actorUserId,
+      session,
+      ...(state === undefined ? {} : { state }),
+      updatedAt: new Date().toISOString(),
+    } satisfies CachedNavigationSession)
+    await transactionDone(transaction)
+  } finally {
+    database.close()
+  }
+}
+
+export async function readCachedNavigationSession(
+  actorUserId: string,
+): Promise<{ session: NavigationSession; state: NavigationState | null } | null> {
+  const database = await openDatabase()
+  try {
+    const transaction = database.transaction(navigationStoreName, 'readonly')
+    const request = transaction.objectStore(navigationStoreName).get(actorUserId)
+    const done = transactionDone(transaction)
+    const value = await new Promise<CachedNavigationSession | undefined>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result as CachedNavigationSession | undefined)
+      request.onerror = () => reject(request.error ?? new Error('Could not read saved navigation.'))
+    })
+    await done
+    return value ? { session: value.session, state: value.state ?? null } : null
+  } finally {
+    database.close()
+  }
+}
+
+export async function clearCachedNavigationSession(actorUserId: string): Promise<void> {
+  const database = await openDatabase()
+  try {
+    const transaction = database.transaction(navigationStoreName, 'readwrite')
+    transaction.objectStore(navigationStoreName).delete(actorUserId)
+    await transactionDone(transaction)
+  } finally {
+    database.close()
+  }
 }
 
 function transactionDone(transaction: IDBTransaction): Promise<void> {

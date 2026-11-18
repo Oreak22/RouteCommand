@@ -29,6 +29,10 @@ const envSchema = z
       .url()
       .refine((value) => ['redis:', 'rediss:'].includes(new URL(value).protocol))
       .default('redis://localhost:6379'),
+    VALHALLA_URL: z.string().url().default('http://localhost:8002'),
+    VALHALLA_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(8_000),
+    NAVIGATION_REROUTE_MIN_INTERVAL_SECONDS: z.coerce.number().int().min(3).max(300).default(8),
+    NAVIGATION_PROGRESS_MIN_INTERVAL_SECONDS: z.coerce.number().int().min(3).max(60).default(5),
     WEB_ORIGIN: z.string().url().default('http://localhost:5173'),
     CORS_ORIGINS: z
       .string()

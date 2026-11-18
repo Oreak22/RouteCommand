@@ -49,6 +49,11 @@ import {
   telemetryPointsQuerySchema,
   telemetryTrackQuerySchema,
   publicTrackingParamsSchema,
+  navigationProgressSchema,
+  navigationRerouteSchema,
+  routePreviewSchema,
+  startNavigationSchema,
+  endNavigationSchema,
 } from '@routecommand/shared'
 import { z } from 'zod'
 
@@ -946,6 +951,98 @@ for (const [method, path, summary, request] of [
       404: { description: 'Zone not found.' },
       409: { description: 'Zone was changed by another request.' },
       422: { description: 'Input validation failed.' },
+    },
+  })
+}
+
+const navigationSessionParamsSchema = z.object({ sessionId: z.string().uuid() })
+const navigationData = z.object({ data: z.unknown() })
+const navigationOperations = [
+  [
+    'post',
+    '/api/v1/navigation/routes',
+    'Preview a route with active restricted zones supplied to the routing engine.',
+    { body: { content: { 'application/json': { schema: routePreviewSchema } } } },
+  ],
+  [
+    'post',
+    '/api/v1/navigation/sessions',
+    'Start navigation for the authenticated driver’s active assigned shipment.',
+    { body: { content: { 'application/json': { schema: startNavigationSchema } } } },
+  ],
+  [
+    'get',
+    '/api/v1/navigation/sessions/active/me',
+    'Resume the authenticated driver’s active navigation session.',
+    undefined,
+  ],
+  [
+    'get',
+    '/api/v1/navigation/sessions/active',
+    'List active navigation sessions for dispatchers and administrators.',
+    undefined,
+  ],
+  [
+    'get',
+    '/api/v1/navigation/sessions/{sessionId}',
+    'Get a navigation session; drivers can access their own session.',
+    { params: navigationSessionParamsSchema },
+  ],
+  [
+    'post',
+    '/api/v1/navigation/sessions/{sessionId}/reroute',
+    'Reroute an active driver session from a fresh position.',
+    {
+      params: navigationSessionParamsSchema,
+      body: { content: { 'application/json': { schema: navigationRerouteSchema } } },
+    },
+  ],
+  [
+    'post',
+    '/api/v1/navigation/sessions/{sessionId}/progress',
+    'Report throttled navigation progress and ETA.',
+    {
+      params: navigationSessionParamsSchema,
+      body: { content: { 'application/json': { schema: navigationProgressSchema } } },
+    },
+  ],
+  [
+    'post',
+    '/api/v1/navigation/sessions/{sessionId}/end',
+    'End an active navigation session.',
+    {
+      params: navigationSessionParamsSchema,
+      body: { content: { 'application/json': { schema: endNavigationSchema } } },
+    },
+  ],
+] as const
+for (const [method, path, summary, request] of navigationOperations) {
+  registry.registerPath({
+    method,
+    path,
+    summary,
+    ...(request ? { request } : {}),
+    security: authenticated,
+    responses: {
+      200: {
+        description: 'Navigation operation completed.',
+        content: { 'application/json': { schema: navigationData } },
+      },
+      201: {
+        description: 'Navigation session created.',
+        content: { 'application/json': { schema: navigationData } },
+      },
+      202: { description: 'Navigation progress accepted.' },
+      401: { description: 'Authentication required.' },
+      403: { description: 'The current role cannot access this navigation resource.' },
+      404: { description: 'Navigation session or assigned shipment not found.' },
+      409: {
+        description: 'Session state, reroute interval, or restricted route requires attention.',
+      },
+      422: {
+        description: 'Input validation failed or the destination is outside routing coverage.',
+      },
+      503: { description: 'Routing engine unavailable.' },
     },
   })
 }

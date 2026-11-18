@@ -259,7 +259,7 @@ export function PublicTrackingPage() {
             <div className="flex items-center gap-2">
               <StatusPill
                 category="shipment"
-                status={tracking.status}
+                status={tracking.status === 'NOT_FOUND' ? 'CREATED' : tracking.status}
                 label={statusLabels[tracking.status] ?? tracking.status}
               />
               <Button variant="secondary" onClick={() => void share()}>

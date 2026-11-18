@@ -49,6 +49,11 @@ const ZonesPage = lazy(() =>
 const DriverMapPage = lazy(() =>
   import('../pages/DriverMapPage').then((module) => ({ default: module.DriverMapPage })),
 )
+const NavigationScreen = lazy(() =>
+  import('../features/navigation/components/NavigationScreen').then((module) => ({
+    default: module.NavigationScreen,
+  })),
+)
 const ShipmentsPage = lazy(() =>
   import('../pages/ShipmentsPage').then((module) => ({ default: module.ShipmentsPage })),
 )
@@ -182,6 +187,7 @@ export function AppRouter() {
           <Route path="/driver" element={<DriverPage />} />
           <Route path="/driver/shipments" element={<ShipmentsPage />} />
           <Route path="/driver/map" element={<DriverMapPage />} />
+          <Route path="/driver/navigation" element={<NavigationScreen />} />
           <Route path="/driver/profile" element={<DriverPage />} />
         </Route>
         <Route element={<PublicLayout />}>

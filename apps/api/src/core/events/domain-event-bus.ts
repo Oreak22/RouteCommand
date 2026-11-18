@@ -81,8 +81,45 @@ export interface DomainEventMap {
     occurredAt: string
     evidence?: Record<string, string | number | boolean>
   }
-  'navigation.offRoute': { navigationSessionId: string; driverId: string }
+  'navigation.offRoute': { navigationSessionId: string; driverId: string; shipmentId: string }
   'navigation.arrived': { navigationSessionId: string; driverId: string; shipmentId: string }
+  'navigation.route': {
+    id: string
+    driverId: string
+    shipmentId: string
+    trackingCode: string
+    status: string
+    route: unknown
+    distanceM: number
+    durationS: number
+  }
+  'navigation.progress': {
+    navigationSessionId: string
+    driverId: string
+    shipmentId: string
+    trackingCode: string
+    stepIndex: number
+    remainingDistanceM: number
+    etaSeconds: number
+    offRoute: boolean
+    status: 'ON_ROUTE' | 'OFF_ROUTE' | 'ESTIMATED' | 'ARRIVED'
+    occurredAt: string
+    changed: boolean
+  }
+  'navigation.rerouted': {
+    id: string
+    driverId: string
+    shipmentId: string
+    route: unknown
+    status: string
+  }
+  'navigation.ended': {
+    id: string
+    driverId: string
+    shipmentId: string
+    reason: string
+    status?: string
+  }
 }
 
 export type DomainEventName = keyof DomainEventMap

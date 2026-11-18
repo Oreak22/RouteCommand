@@ -864,11 +864,20 @@ export async function cancelShipmentRecord(
       true,
     )
     if (shipment.driverId) {
-      await executor.query(
+      const endedSessions = await executor.query<{ id: string; driver_id: string }>(
         `UPDATE navigation_sessions SET status = 'CANCELLED', ended_at = now()
-         WHERE shipment_id = $1 AND status IN ('PLANNED', 'ACTIVE', 'OFF_ROUTE', 'REROUTING')`,
+         WHERE shipment_id = $1 AND status IN ('PLANNED', 'ACTIVE', 'OFF_ROUTE', 'REROUTING')
+         RETURNING id, driver_id`,
         [shipment.id],
       )
+      for (const session of endedSessions.rows) {
+        domainEventBus.publishAfterCommit(afterCommit, 'navigation.ended', {
+          id: session.id,
+          driverId: session.driver_id,
+          shipmentId: shipment.id,
+          reason: 'SHIPMENT_CANCELLED',
+        })
+      }
     }
     domainEventBus.publishAfterCommit(afterCommit, 'shipment.cancelled', {
       shipmentId,

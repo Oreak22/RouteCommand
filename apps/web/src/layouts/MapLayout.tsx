@@ -13,7 +13,11 @@ export function MapLayout() {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
   const isZonesPage = pathname === '/zones'
-  const goBack = () => navigate(window.history.state?.idx > 0 ? -1 : '/app/dashboard')
+  const goBack = () => {
+    const historyIndex = window.history.state?.idx
+    if (typeof historyIndex === 'number' && historyIndex > 0) navigate(-1)
+    else navigate('/app/dashboard')
+  }
   const closeMenu = () => setMenuOpen(false)
 
   return (

@@ -142,6 +142,22 @@ async function applyStatus(
     status,
     force,
   })
+  if (status === 'OFFLINE') {
+    const ended = await executor.query<{ id: string; shipment_id: string }>(
+      `UPDATE navigation_sessions SET status = 'CANCELLED', ended_at = now()
+        WHERE driver_id = $1 AND status IN ('PLANNED','ACTIVE','OFF_ROUTE','REROUTING')
+        RETURNING id, shipment_id`,
+      [driver.id],
+    )
+    for (const session of ended.rows) {
+      domainEventBus.publishAfterCommit(afterCommit, 'navigation.ended', {
+        id: session.id,
+        driverId: driver.id,
+        shipmentId: session.shipment_id,
+        reason: 'DRIVER_OFFLINE',
+      })
+    }
+  }
   publishStatusChanged(afterCommit, { ...driver, status: updated.status }, driver.status, actorId)
 }
 

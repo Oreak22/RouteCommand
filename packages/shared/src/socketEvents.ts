@@ -35,6 +35,29 @@ export interface ZoneUpdatedEvent {
   updatedAt: string
 }
 
+export interface NavigationRouteEvent {
+  sessionId: string
+  driverId: string
+  shipmentId: string
+  route: import('./navigation.js').NavigationRoute
+  targetType: import('./navigation.js').NavigationTargetType
+  status: string
+  distanceM: number
+  durationS: number
+}
+
+export interface NavigationProgressEvent {
+  sessionId: string
+  driverId: string
+  shipmentId: string
+  stepIndex: number
+  remainingDistanceM: number
+  etaSeconds: number
+  offRoute: boolean
+  status: 'ON_ROUTE' | 'OFF_ROUTE' | 'ESTIMATED' | 'ARRIVED'
+  occurredAt: string
+}
+
 export interface OpsSnapshotEvent {
   generatedAt: string
   positions: DriverPositionEvent[]
@@ -70,6 +93,20 @@ export interface ServerToClientEvents {
   'system:notice': (event: SystemNoticeEvent) => void
   'ops:snapshot': (event: OpsSnapshotEvent) => void
   'tracking:update': (event: PublicTrackingUpdate) => void
+  'navigation:route': (event: NavigationRouteEvent) => void
+  'navigation:progress': (event: NavigationProgressEvent) => void
+  'navigation:offRoute': (event: {
+    sessionId: string
+    driverId: string
+    shipmentId: string
+  }) => void
+  'navigation:rerouted': (event: NavigationRouteEvent) => void
+  'navigation:ended': (event: {
+    sessionId: string
+    driverId: string
+    shipmentId: string
+    reason: string
+  }) => void
 }
 
 export interface ClientToServerEvents {

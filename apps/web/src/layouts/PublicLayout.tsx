@@ -8,7 +8,11 @@ export function PublicLayout() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const homePath = user?.role === 'DRIVER' ? '/driver' : user ? '/app/dashboard' : '/track'
-  const back = () => navigate(window.history.state?.idx > 0 ? -1 : homePath)
+  const back = () => {
+    const historyIndex = window.history.state?.idx
+    if (typeof historyIndex === 'number' && historyIndex > 0) navigate(-1)
+    else navigate(homePath)
+  }
 
   return (
     <div className="min-h-screen bg-base-200">

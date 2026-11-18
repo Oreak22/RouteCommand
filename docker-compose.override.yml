@@ -8,6 +8,7 @@ services:
       PORT: 3000
       DATABASE_URL: postgres://routecommand:routecommand@postgres:5432/routecommand
       REDIS_URL: redis://redis:6379
+      VALHALLA_URL: http://valhalla:8002
       WEB_ORIGIN: http://localhost:5173
       SMTP_HOST: mailpit
       SMTP_PORT: 1025

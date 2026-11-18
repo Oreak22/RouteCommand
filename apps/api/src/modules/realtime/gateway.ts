@@ -19,8 +19,8 @@ import { logger } from '../../core/logger.js'
 import { redisClient, redisPublisher } from '../../infra/redis.js'
 import { authenticateAccessToken } from '../auth/service.js'
 import { getShipmentRecord, publicTrackingCodeExists } from '../shipments/service.js'
-import { getDriverTrackingUpdates } from '../tracking/service.js'
 import { ingestTelemetryBatch } from '../telemetry/service.js'
+import { getDriverTrackingUpdates } from '../tracking/service.js'
 
 const telemetryChannel = 'routecommand:telemetry:live'
 const domainChannel = 'routecommand:realtime:events'
@@ -109,6 +109,17 @@ function subscribeDomainEvents(): Array<() => void> {
     domainEventBus.subscribe('alert.created', (event) => publish('alert.created', event)),
     domainEventBus.subscribe('alert.updated', (event) => publish('alert.updated', event)),
     domainEventBus.subscribe('zone.updated', (event) => publish('zone.updated', event)),
+    domainEventBus.subscribe('navigation.route', (event) => publish('navigation.route', event)),
+    domainEventBus.subscribe('navigation.progress', (event) =>
+      publish('navigation.progress', event),
+    ),
+    domainEventBus.subscribe('navigation.offRoute', (event) =>
+      publish('navigation.offRoute', event),
+    ),
+    domainEventBus.subscribe('navigation.rerouted', (event) =>
+      publish('navigation.rerouted', event),
+    ),
+    domainEventBus.subscribe('navigation.ended', (event) => publish('navigation.ended', event)),
   ]
 }
 
@@ -150,6 +161,72 @@ async function operationsSnapshot(): Promise<{
 }
 
 function emitDomainEvent(io: RealtimeServer, name: string, payload: Record<string, unknown>): void {
+  if (name.startsWith('navigation.')) {
+    const driverId = payload.driverId
+    const shipmentId = payload.shipmentId
+    if (typeof driverId !== 'string') return
+    const rooms = [`driver:${driverId}`, 'ops']
+    // Navigation details stay in the driver and operations rooms. Customers use
+    // the separate privacy-limited tracking projection for ETA updates.
+    if (name === 'navigation.route' || name === 'navigation.rerouted') {
+      const event = {
+        sessionId: String(payload.id ?? ''),
+        driverId,
+        shipmentId: String(shipmentId ?? ''),
+        route: payload.route,
+        targetType: payload.targetType === 'DROPOFF' ? 'DROPOFF' : 'PICKUP',
+        status: String(payload.status ?? 'ACTIVE'),
+        distanceM: Number(payload.distanceM ?? 0),
+        durationS: Number(payload.durationS ?? 0),
+      }
+      io.to(rooms).emit(
+        name === 'navigation.route' ? 'navigation:route' : 'navigation:rerouted',
+        event as never,
+      )
+    } else if (name === 'navigation.progress') {
+      const event = {
+        sessionId: String(payload.navigationSessionId ?? ''),
+        driverId,
+        shipmentId: String(shipmentId ?? ''),
+        stepIndex: Number(payload.stepIndex ?? 0),
+        remainingDistanceM: Number(payload.remainingDistanceM ?? 0),
+        etaSeconds: Number(payload.etaSeconds ?? 0),
+        offRoute: Boolean(payload.offRoute),
+        status: String(payload.status ?? 'ON_ROUTE'),
+        occurredAt: String(payload.occurredAt ?? new Date().toISOString()),
+      }
+      io.to(rooms).emit('navigation:progress', event as never)
+    } else if (name === 'navigation.offRoute') {
+      io.to(rooms).emit('navigation:offRoute', {
+        sessionId: String(payload.navigationSessionId ?? ''),
+        driverId,
+        shipmentId: String(shipmentId ?? ''),
+      })
+    } else {
+      io.to(rooms).emit('navigation:ended', {
+        sessionId: String(payload.id ?? payload.navigationSessionId ?? ''),
+        driverId,
+        shipmentId: String(shipmentId ?? ''),
+        reason: String(payload.reason ?? 'MANUAL'),
+      })
+    }
+    const trackingCode = payload.trackingCode
+    if (
+      name === 'navigation.progress' &&
+      payload.changed === true &&
+      typeof trackingCode === 'string'
+    ) {
+      void getDriverTrackingUpdates([driverId])
+        .then((updates) => {
+          for (const update of updates.get(driverId) ?? []) {
+            if (update.trackingCode === trackingCode)
+              io.of('/tracking').to(`public:${trackingCode}`).emit('tracking:update', update.update)
+          }
+        })
+        .catch((error) => logger.error({ err: error }, 'Navigation ETA fan-out failed'))
+    }
+    return
+  }
   if (name === 'shipment.suggested') {
     const shipmentId = payload.shipmentId
     const driverId = payload.driverId

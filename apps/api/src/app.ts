@@ -25,11 +25,12 @@ import { authenticate, authorize } from './modules/auth/authenticate.js'
 import { createAuthRouter } from './modules/auth/index.js'
 import { dispatchRouter } from './modules/dispatch/routes.js'
 import { driversRouter } from './modules/drivers/index.js'
+import { navigationRouter } from './modules/navigation/index.js'
 import { notificationsRouter } from './modules/notifications/routes.js'
 import { securityAdminRouter } from './modules/security/admin-routes.js'
 import { shipmentsRouter } from './modules/shipments/index.js'
-import { trackingRouter } from './modules/tracking/routes.js'
 import { renderTelemetryMetrics, telemetryRouter } from './modules/telemetry/index.js'
+import { trackingRouter } from './modules/tracking/routes.js'
 import { usersRouter } from './modules/users/index.js'
 import { vehiclesRouter } from './modules/vehicles/index.js'
 import { zonesRouter } from './modules/zones/index.js'
@@ -88,6 +89,7 @@ export const createApp = () => {
   app.use('/api/v1/zones', zonesRouter)
   app.use('/api/v1/shipments', shipmentsRouter)
   app.use('/api/v1/tracking', createPublicTrackingRateLimiter(), trackingRouter)
+  app.use('/api/v1/navigation', navigationRouter)
   app.use('/api/v1/telemetry', telemetryRouter)
   app.get('/metrics', authenticate, authorize('ADMIN'), async (_request, response) => {
     response.type('text/plain; version=0.0.4; charset=utf-8').send(await renderTelemetryMetrics())
