@@ -6,12 +6,13 @@ import {
   Command,
   ClipboardList,
   LayoutDashboard,
+  LocateFixed,
+  LockKeyhole,
   LogOut,
   Mail,
   MapPinned,
   Menu,
   PackageCheck,
-  Search,
   ShieldAlert,
   Truck,
   UsersRound,
@@ -21,6 +22,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 
 import type { AppRole } from '../app/RequireRole'
 import { Avatar } from '../components/ui/Avatar'
+import { Button } from '../components/ui/Button'
 import { Drawer } from '../components/ui/Drawer'
 import { IconButton } from '../components/ui/IconButton'
 import { SearchBar } from '../components/ui/SearchBar'
@@ -37,15 +39,18 @@ const navItems: { label: string; to: string; icon: typeof LayoutDashboard; roles
     icon: LayoutDashboard,
     roles: ['ADMIN', 'DISPATCHER'],
   },
+  { label: 'Dashboard', to: '/app/dashboard', icon: LayoutDashboard, roles: ['CUSTOMER'] },
   { label: 'Alerts', to: '/app/alerts', icon: Activity, roles: ['ADMIN', 'DISPATCHER'] },
   { label: 'Dispatch', to: '/app/dispatch', icon: ClipboardList, roles: ['ADMIN', 'DISPATCHER'] },
-  { label: 'Zones', to: '/map', icon: MapPinned, roles: ['ADMIN', 'DISPATCHER'] },
+  { label: 'Live map', to: '/map', icon: MapPinned, roles: ['ADMIN', 'DISPATCHER'] },
+  { label: 'Zones', to: '/zones', icon: MapPinned, roles: ['ADMIN', 'DISPATCHER'] },
   {
     label: 'Shipments',
     to: '/app/shipments',
     icon: PackageCheck,
     roles: ['ADMIN', 'DISPATCHER', 'CUSTOMER'],
   },
+  { label: 'Track a parcel', to: '/track', icon: LocateFixed, roles: ['CUSTOMER'] },
   { label: 'Drivers', to: '/app/drivers', icon: UsersRound, roles: ['ADMIN', 'DISPATCHER'] },
   { label: 'Vehicles', to: '/app/vehicles', icon: Truck, roles: ['ADMIN', 'DISPATCHER'] },
   { label: 'Email', to: '/app/admin/email', icon: Mail, roles: ['ADMIN'] },
@@ -57,11 +62,11 @@ const navItems: { label: string; to: string; icon: typeof LayoutDashboard; roles
     roles: ['ADMIN', 'DISPATCHER', 'DRIVER', 'CUSTOMER'],
   },
   { label: 'Driver workspace', to: '/driver', icon: Truck, roles: ['DRIVER'] },
-] as const
+]
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <Link className="flex items-center gap-3" to="/app/shipments" aria-label="RouteCommand home">
+    <Link className="flex items-center gap-3" to="/app/dashboard" aria-label="RouteCommand home">
       <span className="grid size-9 shrink-0 place-items-center rounded-box bg-primary text-primary-content">
         <Command className="size-5" aria-hidden="true" />
       </span>
@@ -110,10 +115,71 @@ function Navigation({
   )
 }
 
+function AccountSection({
+  compact = false,
+  onNavigate,
+}: {
+  compact?: boolean
+  onNavigate?: () => void
+}) {
+  const { user, logout } = useAuth()
+  const roleLabel = user?.role ? `${user.role[0]}${user.role.slice(1).toLowerCase()}` : 'Account'
+  const signOut = () => {
+    onNavigate?.()
+    void logout()
+  }
+  return (
+    <section className="border-t border-base-content/10 pt-4" aria-label="Account">
+      <div className={`flex items-center gap-2 ${compact ? 'justify-center' : ''}`}>
+        <Avatar name={user?.name ?? 'Account'} size="sm" />
+        {!compact && (
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{user?.name}</p>
+            <p className="text-xs text-base-content/50">{roleLabel}</p>
+          </div>
+        )}
+      </div>
+      <div className={`mt-2 flex gap-2 ${compact ? 'flex-col items-center' : ''}`}>
+        <Link
+          className={`btn btn-ghost btn-sm ${compact ? 'btn-square' : 'flex-1 justify-start'}`}
+          onClick={onNavigate}
+          to="/account/password"
+          title="Password"
+        >
+          <LockKeyhole className="size-4" aria-hidden="true" />
+          {!compact && 'Password'}
+        </Link>
+        {compact ? (
+          <IconButton
+            variant="ghost"
+            size="sm"
+            aria-label="Sign out"
+            title="Sign out"
+            onClick={signOut}
+          >
+            <LogOut className="size-4" aria-hidden="true" />
+          </IconButton>
+        ) : (
+          <Button
+            className="flex-1 justify-start"
+            variant="ghost"
+            size="sm"
+            aria-label="Sign out"
+            onClick={signOut}
+          >
+            <LogOut className="size-4" aria-hidden="true" />
+            Sign out
+          </Button>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
 
   return (
     <div className="min-h-screen bg-base-200">
@@ -125,9 +191,11 @@ export function AppShell() {
           <div className={`px-2 ${collapsed ? 'flex justify-center' : ''}`}>
             <Brand compact={collapsed} />
           </div>
-          <div className="my-6 border-t border-base-content/10" />
-          <Navigation compact={collapsed} />
-          <div className="mt-auto rounded-box border border-base-content/10 bg-base-200 p-3">
+          <div className="my-5 border-t border-base-content/10" />
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <Navigation compact={collapsed} />
+          </div>
+          <div className="mt-4 rounded-box border border-base-content/10 bg-base-200 p-3">
             {!collapsed && (
               <>
                 <p className="text-xs font-semibold">System status</p>
@@ -140,6 +208,9 @@ export function AppShell() {
             {collapsed && (
               <Activity className="mx-auto size-5 text-success" aria-label="System operational" />
             )}
+          </div>
+          <div className="mt-4">
+            <AccountSection compact={collapsed} />
           </div>
           <IconButton
             className="mt-3 self-end"
@@ -161,25 +232,15 @@ export function AppShell() {
             >
               <Menu aria-hidden="true" />
             </IconButton>
+            <Link className="font-semibold tracking-wide xl:hidden" to="/app/dashboard">
+              ROUTECOMMAND
+            </Link>
             <div className="hidden w-full max-w-sm md:block">
               <SearchBar label="Search shipments, drivers…" />
             </div>
-            <IconButton className="ml-auto" variant="ghost" aria-label="Search" title="Search">
-              <Search aria-hidden="true" />
-            </IconButton>
-            {(user?.role === 'ADMIN' || user?.role === 'DISPATCHER') && <AlertsBell />}
-            <ThemeToggle />
-            <div className="flex items-center gap-2 rounded-field p-1.5">
-              <Avatar name={user?.name ?? 'Account'} size="sm" />
-              <span className="hidden max-w-40 truncate text-xs font-medium 2xl:block">
-                {user?.name}
-              </span>
-              <Link className="btn btn-ghost btn-sm" to="/account/password">
-                Password
-              </Link>
-              <IconButton variant="ghost" aria-label="Sign out" onClick={() => void logout()}>
-                <LogOut aria-hidden="true" />
-              </IconButton>
+            <div className="ml-auto flex items-center gap-2">
+              {(user?.role === 'ADMIN' || user?.role === 'DISPATCHER') && <AlertsBell />}
+              <ThemeToggle />
             </div>
           </header>
           <RealtimeConnectionBanner />
@@ -194,7 +255,10 @@ export function AppShell() {
         title="RouteCommand navigation"
       >
         <Brand />
-        <Navigation onNavigate={() => setMobileOpen(false)} />
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <Navigation onNavigate={() => setMobileOpen(false)} />
+        </div>
+        <AccountSection onNavigate={() => setMobileOpen(false)} />
       </Drawer>
     </div>
   )

@@ -24,18 +24,45 @@ const satelliteAttribution =
 const streetAttribution =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 
-export function MapCanvas({ children }: { children?: ReactNode }) {
+export function MapCanvas({
+  children,
+  onTileError,
+  retryKey = 0,
+  center = demoCenter,
+}: {
+  children?: ReactNode
+  onTileError?: () => void
+  retryKey?: number
+  center?: LatLngExpression
+}) {
   return (
-    <MapContainer center={demoCenter} zoom={11} scrollWheelZoom className="z-0 h-full w-full">
+    <MapContainer center={center} zoom={11} scrollWheelZoom className="z-0 h-full w-full">
       <LayersControl position="topright">
         <LayersControl.BaseLayer checked name="Satellite imagery">
-          <TileLayer attribution={satelliteAttribution} url={satelliteTileUrl} maxZoom={19} />
+          <TileLayer
+            key={`satellite-${retryKey}`}
+            attribution={satelliteAttribution}
+            url={satelliteTileUrl}
+            maxZoom={19}
+            eventHandlers={{ tileerror: () => onTileError?.() }}
+          />
         </LayersControl.BaseLayer>
         <LayersControl.BaseLayer name="Street map">
           <TileLayer
+            key={`streets-${retryKey}`}
             attribution={streetAttribution}
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             maxZoom={19}
+            eventHandlers={{ tileerror: () => onTileError?.() }}
+          />
+        </LayersControl.BaseLayer>
+        <LayersControl.BaseLayer name="Dark map">
+          <TileLayer
+            key={`dark-${retryKey}`}
+            attribution="&copy; OpenStreetMap contributors &copy; CARTO"
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            maxZoom={19}
+            eventHandlers={{ tileerror: () => onTileError?.() }}
           />
         </LayersControl.BaseLayer>
       </LayersControl>

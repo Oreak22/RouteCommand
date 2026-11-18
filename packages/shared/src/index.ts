@@ -233,6 +233,34 @@ export const shipmentStatuses = [
 export const shipmentStatusSchema = z.enum(shipmentStatuses)
 export type ShipmentStatus = z.infer<typeof shipmentStatusSchema>
 
+export const publicTrackingParamsSchema = z.object({
+  trackingCode: z.string().trim().min(1).max(64),
+})
+export const publicTrackingStatusSchema = z.union([shipmentStatusSchema, z.literal('NOT_FOUND')])
+export const publicTrackingResponseSchema = z.object({
+  found: z.boolean(),
+  trackingCode: z.string().nullable(),
+  status: publicTrackingStatusSchema,
+  events: z.array(z.object({ status: shipmentStatusSchema, occurredAt: z.string().datetime() })),
+  eta: z.string().datetime().nullable(),
+  dropoff: z
+    .object({ lat: z.number(), lng: z.number(), address: z.string().nullable() })
+    .nullable(),
+  driver: z.object({ firstName: z.string(), vehicleType: vehicleTypeSchema.nullable() }).nullable(),
+  location: z
+    .object({ lat: z.number(), lng: z.number(), recordedAt: z.string().datetime() })
+    .nullable(),
+  updatedAt: z.string().datetime().nullable(),
+})
+export type PublicTrackingResponse = z.infer<typeof publicTrackingResponseSchema>
+
+export interface PublicTrackingUpdate {
+  status: ShipmentStatus
+  eta: string | null
+  location: { lat: number; lng: number; recordedAt: string } | null
+  updatedAt: string
+}
+
 export const shipmentPriorities = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const
 export const shipmentPrioritySchema = z.enum(shipmentPriorities)
 export type ShipmentPriority = z.infer<typeof shipmentPrioritySchema>

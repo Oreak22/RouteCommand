@@ -14,7 +14,7 @@ import { PasswordInput } from '../components/ui/PasswordInput'
 import { useAuth } from '../features/auth/auth-context'
 
 function destination(role: string): string {
-  return role === 'DRIVER' ? '/driver' : role === 'CUSTOMER' ? '/app/shipments' : '/map'
+  return role === 'DRIVER' ? '/driver' : role === 'CUSTOMER' ? '/app/dashboard' : '/map'
 }
 
 export function AuthPage() {

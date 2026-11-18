@@ -21,6 +21,7 @@ type DataTableProps<Row> = {
   loading?: boolean
   emptyTitle?: string
   pageSize?: number
+  highlightedRowId?: string | null
 }
 
 export function DataTable<Row>({
@@ -30,6 +31,7 @@ export function DataTable<Row>({
   loading = false,
   emptyTitle = 'Nothing to show yet',
   pageSize = 6,
+  highlightedRowId = null,
 }: DataTableProps<Row>) {
   const [sort, setSort] = useState<{ key: keyof Row; direction: 'asc' | 'desc' } | null>(null)
   const [page, setPage] = useState(1)
@@ -90,7 +92,15 @@ export function DataTable<Row>({
           {!loading && rows.length > 0 && (
             <tbody>
               {pageRows.map((row) => (
-                <tr key={getRowId(row)}>
+                <tr
+                  key={getRowId(row)}
+                  className={
+                    getRowId(row) === highlightedRowId
+                      ? 'bg-primary/15 outline outline-2 -outline-offset-2 outline-primary'
+                      : undefined
+                  }
+                  aria-current={getRowId(row) === highlightedRowId ? 'true' : undefined}
+                >
                   {columns.map((column) => (
                     <td className={column.className} key={String(column.key)}>
                       {column.render ? column.render(row) : String(row[column.key] ?? '—')}

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Server as HttpServer } from 'node:http'
 
 import {
@@ -19,6 +19,7 @@ import { logger } from '../../core/logger.js'
 import { redisClient, redisPublisher } from '../../infra/redis.js'
 import { authenticateAccessToken } from '../auth/service.js'
 import { getShipmentRecord, publicTrackingCodeExists } from '../shipments/service.js'
+import { getDriverTrackingUpdates } from '../tracking/service.js'
 import { ingestTelemetryBatch } from '../telemetry/service.js'
 
 const telemetryChannel = 'routecommand:telemetry:live'
@@ -251,6 +252,60 @@ export async function startRealtimeGateway(httpServer: HttpServer): Promise<() =
     pingTimeout: 20_000,
     transports: ['websocket', 'polling'],
   })
+  const trackingIo = io.of('/tracking')
+  trackingIo.use(async (socket, next) => {
+    try {
+      const ipHash = createHash('sha256')
+        .update(socket.handshake.address || 'unknown')
+        .digest('hex')
+      const key = `routecommand:public-tracking-socket:${ipHash}`
+      const count = await redisClient.incr(key)
+      if (count === 1) await redisClient.expire(key, 60)
+      if (count > 30) return next(new Error('rate limited'))
+      next()
+    } catch {
+      next(new Error('unavailable'))
+    }
+  })
+  trackingIo.on('connection', (socket) => {
+    let windowStartedAt = Date.now()
+    let subscriptions = 0
+    const joined = new Set<string>()
+    socket.on('public:subscribe', async ({ trackingCode }, ack) => {
+      if (Date.now() - windowStartedAt >= 60_000) {
+        windowStartedAt = Date.now()
+        subscriptions = 0
+      }
+      subscriptions += 1
+      if (subscriptions > 20 || !/^RC-[0-9A-HJKMNP-TV-Z]{10}$/.test(trackingCode)) {
+        ack({ ok: true })
+        return
+      }
+      try {
+        const ipHash = createHash('sha256')
+          .update(socket.handshake.address || 'unknown')
+          .digest('hex')
+        const key = `routecommand:public-tracking-subscribe:${ipHash}`
+        const count = await redisClient.incr(key)
+        if (count === 1) await redisClient.expire(key, 60)
+        if (count > 20 || !(await publicTrackingCodeExists(trackingCode))) {
+          ack({ ok: true })
+          return
+        }
+        if (!joined.has(trackingCode)) {
+          await socket.join(`public:${trackingCode}`)
+          joined.add(trackingCode)
+        }
+        ack({ ok: true })
+      } catch {
+        ack({ ok: false, code: 'UNAVAILABLE' })
+      }
+    })
+    socket.on('public:unsubscribe', async ({ trackingCode }, ack) => {
+      if (joined.delete(trackingCode)) await socket.leave(`public:${trackingCode}`)
+      ack({ ok: true })
+    })
+  })
   const queuedPositions = new Map<string, LiveTelemetry>()
   let flushTimer: NodeJS.Timeout | undefined
   let isBroadcaster = false
@@ -309,7 +364,17 @@ export async function startRealtimeGateway(httpServer: HttpServer): Promise<() =
               const sequence = await redisClient.incr(`routecommand:driver:${driverId}:sequence`)
               io.to('ops').emit('driver:position', { ...position, sequence })
             }),
-          ).catch((error) => logger.error({ err: error }, 'Realtime position fan-out failed'))
+          )
+            .then(async () => {
+              if (!isBroadcaster) return
+              const updatesByDriver = await getDriverTrackingUpdates(batch.map(([id]) => id))
+              for (const updates of updatesByDriver.values()) {
+                for (const { trackingCode, update } of updates) {
+                  trackingIo.to(`public:${trackingCode}`).emit('tracking:update', update)
+                }
+              }
+            })
+            .catch((error) => logger.error({ err: error }, 'Realtime position fan-out failed'))
         }, positionFlushMs)
         flushTimer.unref()
       }

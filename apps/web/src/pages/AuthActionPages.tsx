@@ -28,7 +28,7 @@ function ActionCard({ title, children }: { title: string; children: React.ReactN
 }
 
 function roleHome(role: string): string {
-  return role === 'DRIVER' ? '/driver' : role === 'CUSTOMER' ? '/track/RC-4826-91' : '/map'
+  return role === 'DRIVER' ? '/driver' : role === 'CUSTOMER' ? '/app/dashboard' : '/map'
 }
 
 export function RegisterPage() {

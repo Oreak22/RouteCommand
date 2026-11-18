@@ -25,7 +25,11 @@ function context(request: Request): AuthRequestContext {
 }
 
 export const list: RequestHandler = async (request, response) => {
-  const zones = await listZoneRecords(request.query as never)
+  const isDriver = (request as typeof request & AuthenticatedRequest).authUser?.role === 'DRIVER'
+  const zones = await listZoneRecords({
+    ...request.query,
+    ...(isDriver ? { active: true } : {}),
+  } as never)
   response
     .status(200)
     .json({ data: zones, meta: { limit: request.query.limit, offset: request.query.offset } })

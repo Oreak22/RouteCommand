@@ -46,6 +46,15 @@ const envSchema = z
     RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(120),
     AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(60_000).default(900_000),
     AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(100).default(10),
+    PUBLIC_TRACKING_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).default(60_000),
+    PUBLIC_TRACKING_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1_000).default(20),
+    PUBLIC_TRACKING_LOCATION_DECIMALS: z.coerce.number().int().min(2).max(4).default(3),
+    PUBLIC_TRACKING_LOCATION_MAX_AGE_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(30)
+      .max(86_400)
+      .default(1_800),
     DRIVER_SIGNAL_STALE_SECONDS: z.coerce.number().int().min(10).max(86_400).default(180),
     DISPATCH_PICKUP_RADIUS_M: z.coerce.number().positive().max(100_000).default(25_000),
     DISPATCH_ASSIGNMENT_TIMEOUT_SECONDS: z.coerce.number().int().min(30).max(86_400).default(300),

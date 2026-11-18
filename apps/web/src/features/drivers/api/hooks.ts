@@ -21,6 +21,32 @@ export function useDrivers(
   })
 }
 
+export function useAllDrivers(enabled = true) {
+  return useQuery({
+    queryKey: [...fleetKeys.drivers, 'all-pages'],
+    queryFn: async () => {
+      const pageSize = 100
+      const pagesPerBatch = 4
+      const all: Driver[] = []
+      const firstPage = await fleetApi.drivers({ limit: pageSize, offset: 0 })
+      all.push(...firstPage)
+      if (firstPage.length < pageSize) return all
+
+      for (let page = 1; page < 1_000; page += pagesPerBatch) {
+        const batches = await Promise.all(
+          Array.from({ length: Math.min(pagesPerBatch, 1_000 - page) }, (_, index) =>
+            fleetApi.drivers({ limit: pageSize, offset: (page + index) * pageSize }),
+          ),
+        )
+        for (const batch of batches) all.push(...batch)
+        if (batches.some((batch) => batch.length < pageSize)) return all
+      }
+      throw new Error('The fleet exceeds the supported map loading limit.')
+    },
+    enabled,
+  })
+}
+
 export function useVehicles() {
   return useQuery({ queryKey: fleetKeys.vehicles, queryFn: () => fleetApi.vehicles() })
 }

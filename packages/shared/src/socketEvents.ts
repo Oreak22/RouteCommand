@@ -1,4 +1,9 @@
-import type { TelemetryBatchInput, TelemetryPointInput, UserRole } from './index.js'
+import type {
+  PublicTrackingUpdate,
+  TelemetryBatchInput,
+  TelemetryPointInput,
+  UserRole,
+} from './index.js'
 
 export interface DriverPositionEvent extends TelemetryPointInput {
   driverId: string
@@ -64,6 +69,7 @@ export interface ServerToClientEvents {
   'zone:updated': (event: ZoneUpdatedEvent) => void
   'system:notice': (event: SystemNoticeEvent) => void
   'ops:snapshot': (event: OpsSnapshotEvent) => void
+  'tracking:update': (event: PublicTrackingUpdate) => void
 }
 
 export interface ClientToServerEvents {

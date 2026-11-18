@@ -69,3 +69,21 @@ export function createAuthRateLimiter() {
     handler: (_request, _response, next) => next(new RateLimitedError()),
   })
 }
+
+export function createPublicTrackingRateLimiter() {
+  if (!redisClient.isReady) {
+    throw new Error('Redis must be connected before public tracking rate limiting is initialized.')
+  }
+
+  return rateLimit({
+    windowMs: env.PUBLIC_TRACKING_RATE_LIMIT_WINDOW_MS,
+    limit: env.PUBLIC_TRACKING_RATE_LIMIT_MAX,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    store: new RedisStore({
+      prefix: 'routecommand:public-tracking-rate-limit:',
+      sendCommand: (...args) => redisClient.sendCommand(args),
+    }),
+    handler: (_request, _response, next) => next(new RateLimitedError()),
+  })
+}

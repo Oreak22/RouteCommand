@@ -1,9 +1,11 @@
 import { DriverStatusToggle } from './DriverStatusToggle'
+import { DriverJobsOverview } from './DriverJobsOverview'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { Card } from '../../../components/ui/Card'
 import { EmptyState } from '../../../components/ui/EmptyState'
 import { ErrorState } from '../../../components/ui/ErrorState'
 import { StatusPill } from '../../../components/ui/StatusPill'
+import { DriverTelemetryCard } from '../../telemetry/components/DriverTelemetryCard'
 import { useDriverMe } from '../api/hooks'
 
 export function DriverWorkspace() {
@@ -40,8 +42,12 @@ export function DriverWorkspace() {
       <PageHeader
         eyebrow="Driver workspace"
         title={`Welcome, ${driver.name}`}
-        description="Manage your availability and review your fleet assignment."
+        description="Review assigned jobs, manage your shift, and keep location updates in sync."
       />
+      <div className="space-y-4">
+        <DriverJobsOverview />
+        <DriverTelemetryCard driver={driver} />
+      </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
         <DriverStatusToggle driver={driver} />
         <Card>
@@ -52,7 +58,7 @@ export function DriverWorkspace() {
           <p className="mt-1 text-sm text-base-content/60">
             {driver.vehicleType ?? 'Vehicle assignment pending'}
           </p>
-          <div className="mt-4 flex items-center gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <StatusPill category="driver" status={driver.status} />
             <span
               className={`text-xs ${driver.signalState === 'LIVE' ? 'text-success' : 'text-warning'}`}
@@ -67,11 +73,11 @@ export function DriverWorkspace() {
         <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
           <div>
             <dt className="text-base-content/55">Email</dt>
-            <dd className="mt-1">{driver.email}</dd>
+            <dd className="mt-1 break-all">{driver.email}</dd>
           </div>
           <div>
             <dt className="text-base-content/55">License number</dt>
-            <dd className="mt-1 font-data">{driver.licenseNo}</dd>
+            <dd className="mt-1 break-all font-data">{driver.licenseNo}</dd>
           </div>
           <div>
             <dt className="text-base-content/55">Rating</dt>

@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import { PageHeader } from '../../../components/common/PageHeader'
 import { Badge } from '../../../components/ui/Badge'
@@ -23,9 +24,12 @@ function ageLabel(createdAt: string) {
 }
 
 export function DispatchBoard() {
+  const location = useLocation()
+  const routeDriverId = (location.state as { selectedDriverId?: unknown } | null)?.selectedDriverId
+  const initialDriverId = typeof routeDriverId === 'string' ? routeDriverId : null
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [batchSelection, setBatchSelection] = useState<Set<string>>(new Set())
-  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null)
+  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(initialDriverId)
   const { pushToast } = useToast()
   const queryClient = useQueryClient()
   const shipmentsQuery = useShipments({ status: 'CREATED', limit: 100 })
@@ -53,17 +57,22 @@ export function DispatchBoard() {
   const assign = useAssignDispatch()
   const assignBatch = useAssignDispatchBatch()
   const suggestions = suggestionsQuery.data ?? []
-  const chosenDriver =
-    selectedDriverId && suggestions.some((item) => item.driverId === selectedDriverId)
+  const chosenDriver = selectedDriverId
+    ? suggestions.some((item) => item.driverId === selectedDriverId)
       ? selectedDriverId
-      : (suggestions[0]?.driverId ?? null)
+      : null
+    : (suggestions[0]?.driverId ?? null)
   const batchWeightKg = batchShipments.reduce((total, shipment) => total + shipment.weightKg, 0)
 
   const onShipmentUpdated = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: shipmentKeys.all })
     void queryClient.invalidateQueries({ queryKey: ['dispatch', 'suggestions'] })
   }, [queryClient])
+  const onDriverStatus = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['dispatch', 'suggestions'] })
+  }, [queryClient])
   useSocketEvent('shipment:updated', onShipmentUpdated)
+  useSocketEvent('driver:status', onDriverStatus)
 
   async function assignDriver() {
     if (!selected || !chosenDriver) return
@@ -238,6 +247,16 @@ export function DispatchBoard() {
                   />
                 ) : (
                   <>
+                    {selectedDriverId &&
+                      !suggestions.some((item) => item.driverId === selectedDriverId) && (
+                        <p
+                          className="mt-4 rounded-field bg-warning/10 p-3 text-sm text-warning-content"
+                          role="status"
+                        >
+                          The driver selected on the map is not eligible for this shipment. Choose
+                          an eligible driver below.
+                        </p>
+                      )}
                     {batchShipments.length > 1 &&
                       !suggestions.some((driver) => driver.capacityKg >= batchWeightKg) && (
                         <p

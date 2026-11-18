@@ -48,6 +48,7 @@ import {
   telemetryDriverIdParamsSchema,
   telemetryPointsQuerySchema,
   telemetryTrackQuerySchema,
+  publicTrackingParamsSchema,
 } from '@routecommand/shared'
 import { z } from 'zod'
 
@@ -86,6 +87,28 @@ const errorSchema = registry.register(
     })
     .openapi('ErrorResponse'),
 )
+const publicTrackingSchema = registry.register(
+  'PublicTrackingResponse',
+  z
+    .object({
+      data: z.object({
+        found: z.boolean(),
+        trackingCode: z.string().nullable(),
+        status: z.string(),
+        events: z.array(z.object({ status: z.string(), occurredAt: z.string().datetime() })),
+        eta: z.string().datetime().nullable(),
+        dropoff: z
+          .object({ lat: z.number(), lng: z.number(), address: z.string().nullable() })
+          .nullable(),
+        driver: z.object({ firstName: z.string(), vehicleType: z.string().nullable() }).nullable(),
+        location: z
+          .object({ lat: z.number(), lng: z.number(), recordedAt: z.string().datetime() })
+          .nullable(),
+        updatedAt: z.string().datetime().nullable(),
+      }),
+    })
+    .openapi('PublicTrackingResponse'),
+)
 const authSessionSchema = registry.register(
   'AuthSession',
   z.object({
@@ -118,6 +141,34 @@ registry.registerPath({
       description: 'API process is healthy.',
       content: { 'application/json': { schema: healthSchema } },
     },
+  },
+})
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/tracking/{trackingCode}',
+  summary: 'Get the privacy-filtered public shipment tracking view.',
+  request: { params: publicTrackingParamsSchema },
+  responses: {
+    200: {
+      description: 'Tracking data, or the same shaped response with found=false.',
+      content: { 'application/json': { schema: publicTrackingSchema } },
+    },
+    429: { description: 'Public tracking rate limit exceeded.' },
+  },
+})
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/tracking/{trackingCode}/customer',
+  summary: 'Get full precision delivery details for the owning customer.',
+  security: [{ bearerAuth: [] }],
+  request: { params: publicTrackingParamsSchema },
+  responses: {
+    200: {
+      description: 'Customer-owned tracking data.',
+      content: { 'application/json': { schema: publicTrackingSchema } },
+    },
+    401: { description: 'Authentication required.' },
+    404: { description: 'Shipment was not found for this customer.' },
   },
 })
 for (const [method, path, summary, request] of [
@@ -825,7 +876,12 @@ for (const [method, path, summary, request] of [
       body: { content: { 'application/json': { schema: alertActionSchema } } },
     },
   ],
-  ['get', '/api/v1/zones', 'List delivery and operational zones.', { query: listZonesQuerySchema }],
+  [
+    'get',
+    '/api/v1/zones',
+    'List zones. Drivers can read active zones only.',
+    { query: listZonesQuerySchema },
+  ],
   [
     'post',
     '/api/v1/zones',
@@ -837,7 +893,7 @@ for (const [method, path, summary, request] of [
   [
     'get',
     '/api/v1/zones/geojson',
-    'Return active zones as a GeoJSON FeatureCollection.',
+    'Return active zones as a GeoJSON FeatureCollection. Drivers have read-only access.',
     {
       query: zoneGeoJsonQuerySchema,
     },
@@ -850,7 +906,12 @@ for (const [method, path, summary, request] of [
       body: { content: { 'application/json': { schema: checkZonePointSchema } } },
     },
   ],
-  ['get', '/api/v1/zones/{zoneId}', 'Get a spatial zone.', { params: zoneIdParamsSchema }],
+  [
+    'get',
+    '/api/v1/zones/{zoneId}',
+    'Get a spatial zone. Available to administrators and dispatchers.',
+    { params: zoneIdParamsSchema },
+  ],
   [
     'patch',
     '/api/v1/zones/{zoneId}',

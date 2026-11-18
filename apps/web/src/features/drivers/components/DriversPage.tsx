@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import { DriverForm } from './DriverForm'
 import { PageHeader } from '../../../components/common/PageHeader'
@@ -30,9 +31,20 @@ function relativeTime(value: string | null) {
 }
 
 export function DriversPage() {
-  const [search, setSearch] = useState('')
+  const location = useLocation()
+  const routeState = location.state as {
+    selectedDriverId?: unknown
+    selectedDriverName?: unknown
+  } | null
+  const mapSelectedDriverId =
+    typeof routeState?.selectedDriverId === 'string' ? routeState.selectedDriverId : null
+  const mapSelectedDriverName =
+    typeof routeState?.selectedDriverName === 'string' ? routeState.selectedDriverName : ''
+  const [search, setSearch] = useState(mapSelectedDriverName)
   const [status, setStatus] = useState('')
+  const [highlightedDriverId] = useState<string | null>(mapSelectedDriverId)
   const [selected, setSelected] = useState<Driver | null>(null)
+  const [mapSelectionDismissed, setMapSelectionDismissed] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const { user } = useAuth()
   const {
@@ -41,6 +53,8 @@ export function DriversPage() {
     isError,
     refetch,
   } = useDrivers({ search, status: status || undefined })
+  const mapSelectedDriver = data.find((driver) => driver.id === mapSelectedDriverId) ?? null
+  const selectedDriver = selected ?? (mapSelectionDismissed ? null : mapSelectedDriver)
   const tableRows = useMemo(() => data.map((driver) => ({ ...driver, actions: 'Manage' })), [data])
   const columns = useMemo<DataColumn<(typeof tableRows)[number]>[]>(
     () => [
@@ -152,13 +166,17 @@ export function DriversPage() {
             columns={columns}
             getRowId={(driver) => driver.id}
             pageSize={10}
+            highlightedRowId={highlightedDriverId}
           />
         )}
       </Card>
       <DriverDetailDrawer
-        key={selected?.id ?? 'closed'}
-        driver={selected}
-        onClose={() => setSelected(null)}
+        key={selectedDriver?.id ?? 'closed'}
+        driver={selectedDriver}
+        onClose={() => {
+          setSelected(null)
+          setMapSelectionDismissed(true)
+        }}
         onUpdated={(driver) => setSelected(driver)}
       />
       <DriverForm open={createOpen} onClose={() => setCreateOpen(false)} />

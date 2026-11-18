@@ -10,12 +10,7 @@ export function RequireRole({ children, roles }: { children: ReactNode; roles: U
   const { user } = useAuth()
   if (!user) return <Navigate replace to="/login" />
   if (!roles.includes(user.role)) {
-    const destination =
-      user.role === 'DRIVER'
-        ? '/driver'
-        : user.role === 'CUSTOMER'
-          ? '/track/RC-4826-91'
-          : '/app/dashboard'
+    const destination = user.role === 'DRIVER' ? '/driver' : '/app/dashboard'
     return <Navigate replace to={destination} />
   }
   return <>{children}</>

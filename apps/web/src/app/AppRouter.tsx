@@ -29,7 +29,7 @@ const ChangePasswordPage = lazy(() =>
   import('../pages/AuthActionPages').then((module) => ({ default: module.ChangePasswordPage })),
 )
 const DashboardPage = lazy(() =>
-  import('../pages/DashboardPage').then((module) => ({ default: module.DashboardPage })),
+  import('../pages/AppDashboardPage').then((module) => ({ default: module.AppDashboardPage })),
 )
 const DriverPage = lazy(() =>
   import('../pages/DriverPage').then((module) => ({ default: module.DriverPage })),
@@ -42,6 +42,12 @@ const VehiclesPage = lazy(() =>
 )
 const MapPage = lazy(() =>
   import('../pages/MapPage').then((module) => ({ default: module.MapPage })),
+)
+const ZonesPage = lazy(() =>
+  import('../pages/ZonesPage').then((module) => ({ default: module.ZonesPage })),
+)
+const DriverMapPage = lazy(() =>
+  import('../pages/DriverMapPage').then((module) => ({ default: module.DriverMapPage })),
 )
 const ShipmentsPage = lazy(() =>
   import('../pages/ShipmentsPage').then((module) => ({ default: module.ShipmentsPage })),
@@ -119,7 +125,6 @@ export function AppRouter() {
             </RequireAuth>
           }
         >
-          <Route path="/app/dashboard" element={<DashboardPage />} />
           <Route path="/app/alerts" element={<AlertsPage />} />
           <Route
             path="/app/admin/email"
@@ -149,6 +154,7 @@ export function AppRouter() {
             </RequireAuth>
           }
         >
+          <Route path="/app/dashboard" element={<DashboardPage />} />
           <Route path="/app/shipments" element={<ShipmentsPage />} />
           <Route path="/account/notifications" element={<NotificationPreferencesPage />} />
         </Route>
@@ -162,6 +168,7 @@ export function AppRouter() {
           }
         >
           <Route path="/map" element={<MapPage />} />
+          <Route path="/zones" element={<ZonesPage />} />
         </Route>
         <Route
           element={
@@ -174,9 +181,11 @@ export function AppRouter() {
         >
           <Route path="/driver" element={<DriverPage />} />
           <Route path="/driver/shipments" element={<ShipmentsPage />} />
+          <Route path="/driver/map" element={<DriverMapPage />} />
           <Route path="/driver/profile" element={<DriverPage />} />
         </Route>
         <Route element={<PublicLayout />}>
+          <Route path="/track" element={<PublicTrackingPage />} />
           <Route path="/track/:trackingCode" element={<PublicTrackingPage />} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />

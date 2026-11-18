@@ -2,6 +2,7 @@ import { shipmentStatuses } from '@routecommand/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, PackagePlus, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import { ShipmentForm } from './ShipmentForm'
 import { Button } from '../../../components/ui/Button'
@@ -33,6 +34,7 @@ import {
   useUpdateShipment,
   shipmentKeys,
 } from '../api/hooks'
+import { queueShipmentAction } from '../../telemetry/offline-telemetry-store'
 
 function prettyStatus(status: string) {
   return status
@@ -76,13 +78,18 @@ function ShipmentTimeline({ events }: { events: ShipmentEvent[] }) {
 }
 
 export function ShipmentsWorkspace() {
+  const location = useLocation()
   const { user } = useAuth()
   const role = user?.role ?? 'CUSTOMER'
   const canDispatch = role === 'ADMIN' || role === 'DISPATCHER'
   const canCreate = canDispatch || role === 'CUSTOMER'
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const routeShipmentId = (location.state as { selectedShipmentId?: unknown } | null)
+    ?.selectedShipmentId
+  const [selectedId, setSelectedId] = useState<string | null>(
+    typeof routeShipmentId === 'string' ? routeShipmentId : null,
+  )
   const [formOpen, setFormOpen] = useState(false)
   const [editingShipment, setEditingShipment] = useState<Shipment | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -187,26 +194,45 @@ export function ShipmentsWorkspace() {
   async function changeStatus(toStatus: Shipment['status']) {
     if (!shipmentQuery.data) return
     setActionError(null)
+    const idempotencyKey = crypto.randomUUID()
+    const note =
+      role === 'DRIVER' && toStatus === 'CREATED'
+        ? `Driver declined assignment: ${transitionNote.trim() || 'Driver declined assignment.'}`
+        : transitionNote.trim() || undefined
     try {
-      if (role === 'DRIVER' && toStatus === 'ACCEPTED') {
-        await shipmentsApi.accept(shipmentQuery.data.id)
-        await queryClient.invalidateQueries({ queryKey: shipmentKeys.all })
-      } else if (role === 'DRIVER' && toStatus === 'CREATED') {
-        await shipmentsApi.reject(
-          shipmentQuery.data.id,
-          transitionNote.trim() || 'Driver declined assignment.',
-        )
-        await queryClient.invalidateQueries({ queryKey: shipmentKeys.all })
-      } else {
-        await transition.mutateAsync({
-          id: shipmentQuery.data.id,
-          input: { toStatus, note: transitionNote.trim() || undefined },
-          key: crypto.randomUUID(),
-        })
-      }
+      await transition.mutateAsync({
+        id: shipmentQuery.data.id,
+        input: { toStatus, ...(note ? { note } : {}) },
+        key: idempotencyKey,
+      })
       setTransitionNote('')
       pushToast(`Shipment marked ${prettyStatus(toStatus)}.`, 'success')
     } catch (error) {
+      if (role === 'DRIVER' && (!navigator.onLine || error instanceof TypeError) && user?.id) {
+        try {
+          await queueShipmentAction({
+            actorUserId: user.id,
+            shipmentId: shipmentQuery.data.id,
+            toStatus,
+            note: note ?? null,
+            idempotencyKey,
+          })
+          setTransitionNote('')
+          setActionError(null)
+          pushToast(
+            'Job update saved on this device and will sync when the connection returns.',
+            'success',
+          )
+          return
+        } catch (queueError) {
+          setActionError(
+            queueError instanceof Error
+              ? queueError.message
+              : 'The job update could not be saved offline.',
+          )
+          return
+        }
+      }
       setActionError(
         error instanceof Error ? error.message : 'Could not update the shipment status.',
       )

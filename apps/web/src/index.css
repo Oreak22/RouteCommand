@@ -202,3 +202,64 @@
 .leaflet-control-scale-line {
   font-size: 0.625rem;
 }
+
+.driver-map-icon-shell,
+.shipment-map-icon-shell {
+  border: 0;
+  background: transparent;
+}
+
+.driver-map-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 2px solid white;
+  border-radius: 9999px;
+  background: var(--driver-marker-color, var(--color-primary));
+  color: #10202a;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 45%);
+  transition:
+    opacity 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.driver-map-icon.is-stale {
+  border-style: dashed;
+  opacity: 0.92;
+  filter: grayscale(0.2);
+  box-shadow:
+    0 0 0 2px var(--color-warning),
+    0 1px 5px rgb(0 0 0 / 55%);
+}
+
+.driver-map-arrow {
+  display: block;
+  font-size: 16px;
+  line-height: 1;
+  transform-origin: center;
+}
+
+.shipment-map-icon {
+  display: grid;
+  width: 23px;
+  height: 23px;
+  place-items: center;
+  border: 2px solid white;
+  border-radius: 7px 7px 7px 2px;
+  background: var(--color-secondary);
+  color: var(--color-secondary-content);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 45%);
+  transform: rotate(-45deg);
+}
+
+.shipment-map-icon.is-selected {
+  background: var(--color-accent);
+  color: var(--color-accent-content);
+  box-shadow:
+    0 0 0 4px color-mix(in oklab, var(--color-accent) 32%, transparent),
+    0 1px 5px rgb(0 0 0 / 45%);
+}

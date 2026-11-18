@@ -39,7 +39,7 @@ export function Modal({ open, onClose, title, description, children, footer }: M
         onClose()
       }}
     >
-      <section className="modal-box border border-base-content/10 bg-base-100">
+      <section className="modal-box max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain border border-base-content/10 bg-base-100">
         <header className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold" id={titleId}>
