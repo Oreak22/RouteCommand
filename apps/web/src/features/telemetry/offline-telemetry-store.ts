@@ -1,5 +1,6 @@
 import type { ShipmentStatus, TelemetryPointInput } from '@routecommand/shared'
 import type { NavigationState } from '@routecommand/shared'
+
 import type { NavigationSession } from '../navigation/api/client.js'
 
 const databaseName = 'routecommand-driver-offline'

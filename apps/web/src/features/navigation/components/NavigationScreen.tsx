@@ -21,7 +21,7 @@ import { useAuth } from '../../auth/auth-context'
 import { MapCanvas } from '../../map/MapCanvas'
 import { useSocketEvent } from '../../realtime/useRealtime'
 import { shipmentsApi } from '../../shipments/api/client'
-import { useDriverTelemetry } from '../../telemetry/DriverTelemetryProvider'
+import { useDriverTelemetry } from '../../telemetry/driver-telemetry-context'
 import {
   cacheNavigationSession,
   clearCachedNavigationSession,

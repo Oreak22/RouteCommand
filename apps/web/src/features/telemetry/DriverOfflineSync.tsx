@@ -1,16 +1,16 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef } from 'react'
 
-import { useAuth } from '../auth/auth-context'
-import { useRealtime } from '../realtime/useRealtime'
-import { shipmentsApi } from '../shipments/api/client'
-import { shipmentKeys } from '../shipments/api/hooks'
 import {
   markShipmentActionFailed,
   offlineQueueChangedEvent,
   readQueuedShipmentActions,
   removeQueuedShipmentAction,
 } from './offline-telemetry-store'
+import { useAuth } from '../auth/auth-context'
+import { useRealtime } from '../realtime/useRealtime'
+import { shipmentsApi } from '../shipments/api/client'
+import { shipmentKeys } from '../shipments/api/hooks'
 
 interface ApiError extends Error {
   status?: unknown
@@ -63,7 +63,7 @@ export function DriverOfflineSync() {
     } finally {
       syncing.current = false
     }
-  }, [queryClient, user?.id])
+  }, [queryClient, user])
 
   useEffect(() => {
     syncRef.current = sync

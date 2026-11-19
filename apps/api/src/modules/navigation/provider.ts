@@ -255,8 +255,8 @@ export class ValhallaProvider implements RoutingProvider {
           rejectedOptions
             ? 'Routing engine rejected route options; retrying without zone exclusions.'
             : outsideCoverage
-            ? 'No road route is available for these locations.'
-            : 'Routing engine could not calculate a route.',
+              ? 'No road route is available for these locations.'
+              : 'Routing engine could not calculate a route.',
           rejectedOptions || outsideCoverage ? 422 : 503,
         )
       }

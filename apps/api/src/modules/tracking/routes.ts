@@ -1,10 +1,10 @@
 import { publicTrackingParamsSchema } from '@routecommand/shared'
 import { Router } from 'express'
 
+import { getCustomerTracking, getPublicTracking } from './service.js'
 import { validate } from '../../middleware/validate.js'
 import { authenticate, authorize } from '../auth/authenticate.js'
 import type { AuthenticatedRequest } from '../auth/types.js'
-import { getCustomerTracking, getPublicTracking } from './service.js'
 
 export const trackingRouter = Router()
 trackingRouter.use((_request, response, next) => {

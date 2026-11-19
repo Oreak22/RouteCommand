@@ -1048,6 +1048,8 @@ GNSS jitter at standstill (no phantom progress or off-route); parallel roads and
 
 ### PHASE 21 — Documentation & Interview Readiness
 
+**Execution note (2026-11-19):** The user asked to start this phase ahead of phases 14–20 because of time constraints. Prepare docs and interview material from the current repository, state open verification honestly, and leave the original checklist/order status intact. Return to phases 14–20 later. Phase 21 remains open until its remaining artifacts and demo definition of done are actually met.
+
 **Deliverables**
 
 1. `README.md`: what it is, screenshots/GIFs (live map, geofence alert, offline sync, replay), quick start (`docker compose up`, seed, simulator), architecture diagram, tech stack, credentials for demo roles.

@@ -1,16 +1,16 @@
 import type { TelemetryPointInput } from '@routecommand/shared'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { authenticatedFetch } from '../auth/auth-client'
-import { useAuth } from '../auth/auth-context'
-import type { AppSocket } from '../realtime/socket-context'
-import { useRealtime } from '../realtime/useRealtime'
 import {
   countQueuedTelemetry,
   queueTelemetryPoint,
   readQueuedTelemetry,
   removeQueuedTelemetry,
 } from './offline-telemetry-store'
+import { authenticatedFetch } from '../auth/auth-client'
+import { useAuth } from '../auth/auth-context'
+import type { AppSocket } from '../realtime/socket-context'
+import { useRealtime } from '../realtime/useRealtime'
 
 type CaptureState = 'idle' | 'watching' | 'denied' | 'unsupported' | 'error'
 type PermissionState = 'prompt' | 'granted' | 'denied' | 'unknown'
@@ -141,13 +141,10 @@ export function useGnssTracker(shiftActive: boolean) {
     } finally {
       flushing.current = false
     }
-  }, [socket, user?.id])
+  }, [socket, user])
 
   useEffect(() => {
-    if (!('permissions' in navigator)) {
-      setPermissionState('unknown')
-      return
-    }
+    if (!('permissions' in navigator)) return
     let permissionStatus: PermissionStatus | null = null
     let permissionListener: (() => void) | null = null
     let active = true
@@ -199,7 +196,7 @@ export function useGnssTracker(shiftActive: boolean) {
   }, [user?.id])
 
   useEffect(() => {
-    if (realtimeStatus === 'connected') void flush()
+    if (realtimeStatus === 'connected') window.setTimeout(() => void flush(), 0)
   }, [flush, realtimeStatus])
 
   const stop = useCallback(() => {
@@ -335,7 +332,7 @@ export function useGnssTracker(shiftActive: boolean) {
       },
       { enableHighAccuracy: true, maximumAge: 1_000, timeout: 15_000 },
     )
-  }, [shiftActive, user?.id, user?.role])
+  }, [shiftActive, user])
 
   useEffect(() => {
     if (captureState !== 'watching') return

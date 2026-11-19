@@ -43,12 +43,12 @@ Without local GeoLite2 or Valhalla data, those integrations may be unavailable; 
 
 After running the development seed, the local-only password for each account is `RouteCommandDemo!2026`:
 
-| Role | Email |
-| --- | --- |
-| Admin | `admin@routecommand.local` |
+| Role       | Email                             |
+| ---------- | --------------------------------- |
+| Admin      | `admin@routecommand.local`        |
 | Dispatcher | `amara.okafor@routecommand.local` |
-| Driver | `driver01@routecommand.local` |
-| Customer | `customer01@routecommand.local` |
+| Driver     | `driver01@routecommand.local`     |
+| Customer   | `customer01@routecommand.local`   |
 
 These seeded credentials are public development fixtures. Never use them for a deployed or shared environment. The seed command resets selected demo records to known values; review `apps/api/src/db/seed.ts` and `apps/api/db/seed.sql` before running it against any non-disposable database.
 
@@ -97,4 +97,5 @@ The current walkthrough and its known prerequisites are in [docs/DEMO_SCRIPT.md]
 - [Security model and remaining verification](docs/SECURITY.md)
 - [Performance evidence and open measurements](docs/PERFORMANCE.md)
 - [Demo walkthrough](docs/DEMO_SCRIPT.md)
+- [Interview walkthrough and package/map explanations](docs/INTERVIEW_GUIDE.md)
 - [All project guides](docs/)

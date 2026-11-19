@@ -6,7 +6,7 @@ import { Button } from '../../../components/ui/Button'
 import { Card } from '../../../components/ui/Card'
 import { useAuth } from '../../auth/auth-context'
 import type { Driver } from '../../drivers/api/client'
-import { promptPwaInstall, usePwaInstallPrompt } from '../pwa-install-prompt'
+import { useDriverTelemetry } from '../driver-telemetry-context'
 import {
   getQueuedShipmentActionCounts,
   offlineQueueChangedEvent,
@@ -14,7 +14,7 @@ import {
   removeQueuedShipmentAction,
   type QueuedShipmentAction,
 } from '../offline-telemetry-store'
-import { useDriverTelemetry } from '../DriverTelemetryProvider'
+import { promptPwaInstall, usePwaInstallPrompt } from '../pwa-install-prompt'
 
 function formatFixTime(recordedAt: string | null) {
   if (!recordedAt) return 'Waiting for a location fix'

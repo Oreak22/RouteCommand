@@ -1,5 +1,5 @@
-import { ArrowRight, Navigation, PackageCheck } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { ArrowRight, Navigation, PackageCheck } from 'lucide-react'
 import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -9,8 +9,8 @@ import { ErrorState } from '../../../components/ui/ErrorState'
 import { Skeleton } from '../../../components/ui/Skeleton'
 import { StatusPill } from '../../../components/ui/StatusPill'
 import { useSocketEvent } from '../../realtime/useRealtime'
-import { shipmentKeys, useShipments } from '../../shipments/api/hooks'
 import type { Shipment } from '../../shipments/api/client'
+import { shipmentKeys, useShipments } from '../../shipments/api/hooks'
 
 const completedStatuses = new Set<Shipment['status']>(['DELIVERED', 'CANCELLED', 'RETURNED'])
 

@@ -20,6 +20,7 @@ import { useToast } from '../../../components/ui/toast-context'
 import { useAuth } from '../../auth/auth-context'
 import { useDrivers } from '../../drivers/api/hooks'
 import { useRealtime, useSocketEvent } from '../../realtime/useRealtime'
+import { queueShipmentAction } from '../../telemetry/offline-telemetry-store'
 import type { Shipment } from '../api/client'
 import type { ShipmentEvent } from '../api/client'
 import { shipmentsApi } from '../api/client'
@@ -34,7 +35,6 @@ import {
   useUpdateShipment,
   shipmentKeys,
 } from '../api/hooks'
-import { queueShipmentAction } from '../../telemetry/offline-telemetry-store'
 
 function prettyStatus(status: string) {
   return status

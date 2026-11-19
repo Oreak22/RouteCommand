@@ -38,6 +38,16 @@ export default defineConfig([
     extends: [reactHooks.configs.flat.recommended, reactRefresh.configs.vite],
   },
   {
+    files: ['apps/web/public/sw.js'],
+    languageOptions: {
+      globals: {
+        self: 'readonly',
+        caches: 'readonly',
+        indexedDB: 'readonly',
+      },
+    },
+  },
+  {
     files: ['apps/web/src/**/*.{tsx,jsx}'],
     plugins: { 'jsx-a11y': jsxA11y },
     rules: {

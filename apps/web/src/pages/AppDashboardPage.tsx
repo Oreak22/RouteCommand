@@ -1,8 +1,8 @@
 import { Navigate } from 'react-router-dom'
 
-import { useAuth } from '../features/auth/auth-context'
 import { CustomerDashboardPage } from './CustomerDashboardPage'
 import { DashboardPage } from './DashboardPage'
+import { useAuth } from '../features/auth/auth-context'
 
 export function AppDashboardPage() {
   const { user } = useAuth()

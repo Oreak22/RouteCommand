@@ -7,7 +7,7 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { useDriverMe } from '../features/drivers/api/hooks'
 import { MapCanvas } from '../features/map/MapCanvas'
 import { ZonesLayer } from '../features/map/ZonesLayer'
-import { useDriverTelemetry } from '../features/telemetry/DriverTelemetryProvider'
+import { useDriverTelemetry } from '../features/telemetry/driver-telemetry-context'
 import { useZoneGeoJson } from '../features/zones/api/hooks'
 
 export function DriverMapPage() {

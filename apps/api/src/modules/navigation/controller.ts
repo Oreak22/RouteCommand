@@ -21,11 +21,9 @@ export async function preview(_request: AuthRequest, response: Response) {
 
 export async function start(request: AuthRequest, response: Response) {
   const input = request.body as { shipmentId: string }
-  response
-    .status(201)
-    .json({
-      data: await startNavigationSession(request.authUser!.id, request.driverId!, input.shipmentId),
-    })
+  response.status(201).json({
+    data: await startNavigationSession(request.authUser!.id, request.driverId!, input.shipmentId),
+  })
 }
 
 export async function active(request: AuthRequest, response: Response) {
@@ -38,16 +36,14 @@ export async function activeAll(_request: AuthRequest, response: Response) {
 
 export async function detail(request: AuthRequest, response: Response) {
   const { sessionId } = request.params as { sessionId: string }
-  response
-    .status(200)
-    .json({
-      data: await getNavigationSession(
-        sessionId,
-        request.authUser!.id,
-        request.authUser!.role,
-        request.driverId,
-      ),
-    })
+  response.status(200).json({
+    data: await getNavigationSession(
+      sessionId,
+      request.authUser!.id,
+      request.authUser!.role,
+      request.driverId,
+    ),
+  })
 }
 
 export async function reroute(request: AuthRequest, response: Response) {

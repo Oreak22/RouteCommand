@@ -1,8 +1,8 @@
-import { CircleMarker, Marker, Polyline, Tooltip, useMap } from 'react-leaflet'
+import type { PublicTrackingResponse } from '@routecommand/shared'
 import { useEffect, useMemo } from 'react'
+import { CircleMarker, Marker, Polyline, Tooltip, useMap } from 'react-leaflet'
 
 import { MapCanvas } from '../../map/MapCanvas'
-import type { PublicTrackingResponse } from '@routecommand/shared'
 
 function FitTrackingPoints({ points }: { points: [number, number][] }) {
   const map = useMap()
@@ -15,15 +15,21 @@ function FitTrackingPoints({ points }: { points: [number, number][] }) {
 }
 
 export function TrackingMap({ tracking }: { tracking: PublicTrackingResponse }) {
-  const dropoff = tracking.dropoff
-    ? ([tracking.dropoff.lat, tracking.dropoff.lng] as [number, number])
-    : null
-  const driver = tracking.location
-    ? ([tracking.location.lat, tracking.location.lng] as [number, number])
-    : null
+  const dropoffLat = tracking.dropoff?.lat ?? null
+  const dropoffLng = tracking.dropoff?.lng ?? null
+  const driverLat = tracking.location?.lat ?? null
+  const driverLng = tracking.location?.lng ?? null
+  const dropoff = useMemo<[number, number] | null>(
+    () => (dropoffLat === null || dropoffLng === null ? null : [dropoffLat, dropoffLng]),
+    [dropoffLat, dropoffLng],
+  )
+  const driver = useMemo<[number, number] | null>(
+    () => (driverLat === null || driverLng === null ? null : [driverLat, driverLng]),
+    [driverLat, driverLng],
+  )
   const points = useMemo(
     () => [driver, dropoff].filter((point): point is [number, number] => point !== null),
-    [tracking.location?.lat, tracking.location?.lng, tracking.dropoff?.lat, tracking.dropoff?.lng],
+    [driver, dropoff],
   )
 
   return (

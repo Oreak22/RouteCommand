@@ -1,5 +1,5 @@
-import { Activity, ArrowUpRight, MapPinned, PackageCheck, Truck, Users } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { Activity, ArrowUpRight, MapPinned, PackageCheck, Truck, Users } from 'lucide-react'
 import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -10,13 +10,13 @@ import type { DataColumn } from '../components/ui/DataTable'
 import { ErrorState } from '../components/ui/ErrorState'
 import { StatCard } from '../components/ui/StatCard'
 import { StatusPill } from '../components/ui/StatusPill'
-import { useAuth } from '../features/auth/auth-context'
 import { alertKeys, useAlertStats } from '../features/alerts/api/hooks'
+import { useAuth } from '../features/auth/auth-context'
 import type { Driver } from '../features/drivers/api/client'
 import { fleetKeys, useAllDrivers } from '../features/drivers/api/hooks'
-import { shipmentKeys, useShipments } from '../features/shipments/api/hooks'
-import type { Shipment } from '../features/shipments/api/client'
 import { useSocketEvent } from '../features/realtime/useRealtime'
+import type { Shipment } from '../features/shipments/api/client'
+import { shipmentKeys, useShipments } from '../features/shipments/api/hooks'
 import { zoneKeys, useZones } from '../features/zones/api/hooks'
 
 type ShipmentRow = {

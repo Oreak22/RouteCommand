@@ -1,28 +1,19 @@
-import { createContext, useContext, useEffect, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 
-import { useDriverMe } from '../drivers/api/hooks'
+import { DriverTelemetryContext } from './driver-telemetry-context'
 import { useGnssTracker } from './useGnssTracker'
-
-type DriverTracker = ReturnType<typeof useGnssTracker>
-const DriverTelemetryContext = createContext<DriverTracker | null>(null)
+import { useDriverMe } from '../drivers/api/hooks'
 
 export function DriverTelemetryProvider({ children }: { children: ReactNode }) {
   const { data: driver } = useDriverMe()
   const shiftActive = driver?.status === 'AVAILABLE' || driver?.status === 'BUSY'
   const tracker = useGnssTracker(shiftActive)
+  const { captureState, stop } = tracker
   useEffect(() => {
-    if (!shiftActive && tracker.captureState === 'watching') tracker.stop()
-  }, [shiftActive, tracker.captureState, tracker.stop])
+    if (!shiftActive && captureState === 'watching') stop()
+  }, [shiftActive, captureState, stop])
 
   return (
     <DriverTelemetryContext.Provider value={tracker}>{children}</DriverTelemetryContext.Provider>
   )
-}
-
-export function useDriverTelemetry() {
-  const tracker = useContext(DriverTelemetryContext)
-  if (!tracker) {
-    throw new Error('Driver telemetry must be used inside DriverTelemetryProvider.')
-  }
-  return tracker
 }

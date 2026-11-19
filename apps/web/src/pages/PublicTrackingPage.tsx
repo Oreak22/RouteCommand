@@ -1,9 +1,9 @@
 import type { PublicTrackingResponse, PublicTrackingUpdate } from '@routecommand/shared'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, CircleDot, Copy, PackageCheck, Search, Truck } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { io } from 'socket.io-client'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { io } from 'socket.io-client'
 
 import { PageHeader } from '../components/common/PageHeader'
 import { Button } from '../components/ui/Button'
@@ -36,7 +36,6 @@ function formatTime(value: string | null) {
 function TrackingSearch({ initialCode = '' }: { initialCode?: string }) {
   const [value, setValue] = useState(initialCode)
   const navigate = useNavigate()
-  useEffect(() => setValue(initialCode), [initialCode])
   return (
     <form
       className="flex flex-col gap-2 sm:flex-row"
@@ -187,7 +186,7 @@ export function PublicTrackingPage() {
           description="Check your connection and try again."
         />
         <Card>
-          <TrackingSearch initialCode={code} />
+          <TrackingSearch key={code} initialCode={code} />
           <Button className="mt-4" onClick={() => void trackingQuery.refetch()}>
             Try again
           </Button>
@@ -204,7 +203,7 @@ export function PublicTrackingPage() {
           description="Check the tracking number and try again."
         />
         <Card>
-          <TrackingSearch initialCode={code} />
+          <TrackingSearch key={code} initialCode={code} />
           <Link className="mt-4 inline-block text-sm text-primary underline" to="/track">
             Start a new search
           </Link>
@@ -222,7 +221,8 @@ export function PublicTrackingPage() {
   }
   const terminal = terminalMessage[tracking.status]
   const driverSignalDelayed =
-    tracking.location !== null && Date.now() - Date.parse(tracking.location.recordedAt) > 180_000
+    tracking.location !== null &&
+    trackingQuery.dataUpdatedAt - Date.parse(tracking.location.recordedAt) > 180_000
   const driverLabel = tracking.driver
     ? `${tracking.driver.firstName}${tracking.driver.vehicleType ? ` · ${tracking.driver.vehicleType.toLowerCase()}` : ''}`
     : 'Driver details will appear after assignment'

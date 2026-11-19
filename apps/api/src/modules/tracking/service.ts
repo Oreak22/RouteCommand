@@ -1,11 +1,11 @@
 import type { PublicTrackingResponse, PublicTrackingUpdate } from '@routecommand/shared'
 
-import { env } from '../../config/env.js'
 import {
   findCustomerTrackingRecord,
   findTrackingRecord,
   listDriverTrackingUpdateRecords,
 } from './repository.js'
+import { env } from '../../config/env.js'
 
 const locationVisibleStatuses = new Set(['PICKED_UP', 'IN_TRANSIT', 'ARRIVED'])
 const trackingCodePattern = /^RC-[0-9A-HJKMNP-TV-Z]{10}$/

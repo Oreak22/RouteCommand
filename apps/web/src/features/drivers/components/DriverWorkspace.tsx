@@ -1,5 +1,5 @@
-import { DriverStatusToggle } from './DriverStatusToggle'
 import { DriverJobsOverview } from './DriverJobsOverview'
+import { DriverStatusToggle } from './DriverStatusToggle'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { Card } from '../../../components/ui/Card'
 import { EmptyState } from '../../../components/ui/EmptyState'
